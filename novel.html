@@ -250,38 +250,7 @@ body {
 }
 
 /* 滚动按钮 */
-.scroll-btns {
-  position: absolute;
-  right: 8px;
-  bottom: 12px;
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  z-index: 5;
-  opacity: 0;
-  transition: opacity .3s;
-}
-.scroll-btns { opacity: 0.85; }
-.scroll-btns:hover { opacity: 1; }
-.scroll-btns button {
-  width: 44px;
-  height: 44px;
-  border-radius: 50%;
-  border: 1px solid var(--border);
-  background: var(--card2);
-  color: var(--text2);
-  font-size: 18px;
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  transition: all .2s;
-  box-shadow: 0 2px 8px rgba(0,0,0,.3);
-}
-.scroll-btns button:hover { border-color: var(--accent); color: var(--text); }
-.scroll-btns button:active { transform: scale(.9); }
-  background: var(--card);
-  border: 1px solid var(--border);
+
   border-radius: var(--radius);
   padding: 24px 20px;
   margin-bottom: 12px;
@@ -587,10 +556,7 @@ body {
     <span id="wcTokens" style="margin-left:auto;font-size:11px;color:var(--text3);"></span>
   </div>
   <div class="paper" id="paperArea">
-    <div class="scroll-btns" id="scrollBtns">
-      <button onclick="scrollPaper('top')" title="回到顶部">▲</button>
-      <button onclick="scrollPaper('bottom')" title="滚到底部">▼</button>
-    </div>
+
     <div class="chapter-content" id="chapterContent">
       <div class="empty-hint"><span class="big">✍</span>还没有内容<br>在下方输入想法，开始写作吧</div>
     </div>
@@ -1058,11 +1024,6 @@ function goChapters() {
   currentChapterId = null;
   switchPage('page-chapters');
   renderChapters();
-}
-function scrollPaper(dir) {
-  const el = document.getElementById('paperArea');
-  if (!el) return;
-  el.scrollTo({ top: dir === 'top' ? 0 : el.scrollHeight, behavior: 'smooth' });
 }
 function settingsForChapter() {
   showToast('可在首页 ⚙ 设置中修改提示词');
