@@ -584,6 +584,7 @@ body {
     <span id="wcLabel">0 字</span>
     <div class="bar-track"><div class="bar-fill" id="wcFill" style="width:0%"></div></div>
     <span id="wcModel" style="color:var(--text2);">flash</span>
+    <span id="wcTokens" style="margin-left:auto;font-size:11px;color:var(--text3);"></span>
   </div>
   <div class="paper" id="paperArea">
     <div class="scroll-btns" id="scrollBtns">
@@ -1026,6 +1027,13 @@ function updateWordCountBar() {
   document.getElementById('wcModel').textContent = c.model || currentModel;
   const pct = Math.min(100, Math.round(len / chapterWordTarget * 100));
   document.getElementById('wcFill').style.width = pct + '%';
+  const te = document.getElementById('wcTokens');
+  if (te) {
+    const n2 = getNovel();
+    const bookTokens = n2 ? n2.chapters.reduce((s, c) => s + (c.tokens || 0), 0) : 0;
+    const ch = n2 && n2.chapters[currentChapterId];
+    te.textContent = '⚡总' + totalTokensUsed.toLocaleString() + ' · 本章' + (ch ? (ch.tokens || 0).toLocaleString() : '0') + ' · 本书' + bookTokens.toLocaleString();
+  }
 }
 function renderPaper() {
   const n = getNovel();
@@ -1153,6 +1161,10 @@ async function doWrite(userText, isFullMessage) {
           const parsed = JSON.parse(data);
           const delta = parsed.choices?.[0]?.delta?.content || '';
           if (delta) fullReply += delta;
+          if (parsed.usage) {
+            totalTokensUsed += parsed.usage.total_tokens || 0;
+            window._lastStreamTokens = (window._lastStreamTokens || 0) + (parsed.usage.total_tokens || 0);
+          }
         } catch(e) { /* 跳过解析失败的行 */ }
       }
       // 实时更新显示
@@ -1320,6 +1332,10 @@ async function sendMessage() {
           const parsed = JSON.parse(data);
           const delta = parsed.choices?.[0]?.delta?.content || '';
           if (delta) fullReply += delta;
+          if (parsed.usage) {
+            totalTokensUsed += parsed.usage.total_tokens || 0;
+            window._lastStreamTokens = (window._lastStreamTokens || 0) + (parsed.usage.total_tokens || 0);
+          }
         } catch(e) {}
       }
       const streamEl = document.getElementById('streamOutput');
