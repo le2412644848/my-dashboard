@@ -1040,25 +1040,46 @@ function autoWrite() {
   const chars = n.bible?.characters?.trim();
   const other = n.bible?.other?.trim();
   
-  // 把设定直接拼进用户消息，强迫 AI 按着写
-  let biblePart = '';
-  if (synopsis) biblePart += '【故事梗概】' + synopsis + '\n';
-  if (chars) biblePart += '【人物设定】' + chars + '\n';
-  if (outline) biblePart += '【章节大纲】' + outline + '\n';
-  if (other) biblePart += '【其他设定】' + other + '\n';
+  const chNum = (currentChapterId !== null ? currentChapterId : 0) + 1;
   
-  const currentChapterNum = (currentChapterId !== null ? currentChapterId : 0) + 1;
-  
-  let userMsg;
-  if (hasContent) {
-    userMsg = `当前写的是第${currentChapterNum}章，已有部分内容。请严格根据以下故事设定续写本章：\n\n${biblePart}\n请直接续写正文，不要输出标题。`;
-  } else {
-    userMsg = `现在开始写第${currentChapterNum}章。请严格根据以下故事设定来写：\n\n${biblePart}\n请直接写正文，不要输出章节标题。`;
+  // 从大纲中提取当前章节对应的描述
+  let chDesc = '';
+  if (outline) {
+    const cn = ['零','一','二','三','四','五','六','七','八','九','十','十一','十二','十三','十四','十五'];
+    const cnn = cn[chNum] || '';
+    const lines = outline.split('\n');
+    for (const line of lines) {
+      const t = line.trim();
+      const r1 = t.match(new RegExp('^第' + cnn + '[章节\\s]'));
+      const r2 = t.match(new RegExp('^第\\\\s*' + chNum + '\\\\s*[章节\\s]'));
+      const r3 = t.match(new RegExp('^' + chNum + '[\\.\\、]'));
+      if (r1 || r2 || r3) {
+        chDesc = t.replace(/^[第\\d\\s.\\、零一二三四五六七八九十百千章节篇：:]+/g, '').trim();
+        break;
+      }
+    }
+    if (!chDesc && lines.length > 0 && chNum <= lines.length) {
+      chDesc = lines[chNum - 1].trim();
+    }
   }
   
-  doWrite(userMsg, true); // true = 已经拼好了完整用户消息
+  // 构建设定文本：只传当前章需要的内容
+  let biblePart = '';
+  if (synopsis) biblePart += '【故事梗概】\\n' + synopsis + '\\n\\n';
+  if (chars) biblePart += '【人物设定】\\n' + chars + '\\n\\n';
+  if (chDesc) {
+    const cn2 = ['','一','二','三','四','五','六','七','八','九','十','十一','十二','十三','十四','十五'];
+    biblePart += '【本章大纲要求】\\n必须写第' + (cn2[chNum]||chNum) + '章，本章内容：' + chDesc + '\\n请严格按这个要求，不要写其他章节。\\n\\n';
+  } else if (outline) {
+    biblePart += '【章节大纲】\\n' + outline + '\\n\\n（当前写第' + chNum + '章，对应大纲该章节）\\n';
+  }
+  if (other) biblePart += '【其他设定】\\n' + other + '\\n\\n';
+  
+  const instruction = hasContent ? '续写本章正文' : '写本章正文';
+  const userMsg = `现在写第${chNum}章。\n\n${biblePart}请${instruction}，严格按本章大纲要求，不要输出章节标题。`;
+  
+  doWrite(userMsg, true);
 }
-
 // 直接发送，不经过输入框
 // isFullMessage=true 时 userText 已经是完整的用户消息，不包装
 async function doWrite(userText, isFullMessage) {
