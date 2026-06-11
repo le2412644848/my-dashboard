@@ -261,16 +261,16 @@ body {
   opacity: 0;
   transition: opacity .3s;
 }
-.paper:hover .scroll-btns,
-.scroll-btns.show { opacity: 1; }
+.scroll-btns { opacity: 0.85; }
+.scroll-btns:hover { opacity: 1; }
 .scroll-btns button {
-  width: 32px;
-  height: 32px;
+  width: 44px;
+  height: 44px;
   border-radius: 50%;
   border: 1px solid var(--border);
   background: var(--card2);
   color: var(--text2);
-  font-size: 14px;
+  font-size: 18px;
   cursor: pointer;
   display: flex;
   align-items: center;
@@ -278,6 +278,7 @@ body {
   transition: all .2s;
   box-shadow: 0 2px 8px rgba(0,0,0,.3);
 }
+.scroll-btns button:hover { border-color: var(--accent); color: var(--text); }
 .scroll-btns button:active { transform: scale(.9); }
   background: var(--card);
   border: 1px solid var(--border);
