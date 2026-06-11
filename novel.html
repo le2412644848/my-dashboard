@@ -859,12 +859,10 @@ function renderHome() {
   el.innerHTML = novels.map((n, i) => {
     const total = n.chapters.reduce((s, c) => s + (c.content || '').length, 0);
     const hasBible = n.bible && (n.bible.synopsis || n.bible.characters);
+    const novelTokens = n.chapters.reduce((s, c) => s + (c.tokens || 0), 0);
     return `<div class="card" onclick="openNovel(${i})">
       <h3>${esc(n.title)} ${hasBible ? '📖' : ''}</h3>
-      const novelTokens = n.chapters.reduce((s, c) => s + (c.tokens || 0), 0);
-    return `<div class="card" onclick="openNovel(${i})">
-      <h3>${esc(n.title)} ${hasBible ? '📖' : ''}</h3>
-      <div class="meta">${n.style} · ${n.chapters.length} 章 · ${total.toLocaleString()} 字${novelTokens ? ' · ⚡' + novelTokens.toLocaleString() : ''}${novelTokens ? ' ¥' + n.chapters.reduce((s, c) => s + (c.cost || 0), 0).toFixed(4) : ''}}</div>
+      <div class="meta">${n.style} · ${n.chapters.length} 章 · ${total.toLocaleString()} 字${novelTokens ? ' · ⚡' + novelTokens.toLocaleString() : ''}${novelTokens ? ' · ¥' + n.chapters.reduce((s, c) => s + (c.cost || 0), 0).toFixed(4) : ''}}</div>
       <span class="tag">${n.style}</span>
       <div class="progress-bar"><div class="fill" style="width:${Math.min(100, Math.round(total/chapterWordTarget*100))}%"></div></div>
     </div>`;
