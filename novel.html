@@ -772,7 +772,7 @@ function loadData() {
   updateModelUI();
 }
 function saveData() {
-  localStorage.setItem('novelWriterData', JSON.stringify({ novels, currentModel, customPrompt, chapterWordTarget }));
+  localStorage.setItem('novelWriterData', JSON.stringify({ novels, currentModel, customPrompt, chapterWordTarget, totalTokensUsed }));
   clearTimeout(window._saveToastTimer);
   window._saveToastTimer = setTimeout(() => {
     const el = document.getElementById('toast');
