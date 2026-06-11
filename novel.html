@@ -1257,8 +1257,7 @@ function buildSystemPrompt() {
     const cn3 = ['零','一','二','三','四','五','六','七','八','九','十','十一','十二','十三','十四','十五'];
     const chNum3 = chIdx + 1;
     const cnn3 = cn3[chNum3] || '';
-    const lines3 = n2.bible.outline.split('
-');
+    const lines3 = n2.bible.outline.split('\\n');
     let currentChapterDesc = '';
     for (const line of lines3) {
       const t = line.trim();
@@ -1271,10 +1270,7 @@ function buildSystemPrompt() {
       currentChapterDesc = lines3[chNum3 - 1].trim();
     }
     if (currentChapterDesc) {
-      template = '【强制章节指令】现在写的是第' + chNum3 + '章。本章大纲要求是：' + currentChapterDesc + '
-你只能写本章应该写的内容，不能提前写后面章节的事件，不能添加大纲中没有的角色或情节。
-
-' + template;
+      template = '【强制章节指令】现在写的是第' + chNum3 + '章。本章大纲要求是：' + currentChapterDesc + '\\n你只能写本章应该写的内容，不能提前写后面章节的事件，不能添加大纲中没有的角色或情节。\\n\\n' + template;
     }
   }
   return template
