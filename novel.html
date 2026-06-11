@@ -1027,10 +1027,8 @@ function renderPaper() {
     return;
   }
   const badge = `<span class="model-badge ${c.model||'flash'}">${c.model||'flash'}</span>`;
-  const paragraphs = (c.content || '').split(/
-{2,}/).filter(Boolean);
-  const html = paragraphs.map(p => '<p>' + esc(p.replace(/
-/g, ' ').trim()) + '</p>').join('');
+  const paragraphs = (c.content || '').split(/\n{2,}/).filter(Boolean);
+  const html = paragraphs.map(p => '<p>' + esc(p.replace(/\n/g, ' ').trim()) + '</p>').join('');
   el.innerHTML = badge + html;
   document.getElementById('paperArea').scrollTop = document.getElementById('paperArea').scrollHeight;
 }
