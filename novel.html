@@ -536,7 +536,85 @@ body {
 <script>window.onerror = function(msg, url, line) {
   const el = document.getElementById('errorDisplay');
   if (el) { el.style.display = 'block'; el.textContent = '❌ JS错误: ' + msg + ' (第' + line + '行)'; }
-};</script>
+};
+// ===== AI 生成大纲 =====
+async function generateOutline() {
+  const title = document.getElementById('novelTitle').value.trim();
+  if (!title) { showToast('请先输入书名'); return; }
+  const sel = document.querySelector('#styleTags .tag-btn.selected');
+  let style = sel ? sel.dataset.style : '古风';
+  const custom = document.getElementById('novelCustomStyle').value.trim();
+  if (custom) style = custom;
+  const btn = document.getElementById('outlineBtn');
+  btn.disabled = true;
+  btn.textContent = '⏳ 生成中…';
+  document.getElementById('outlineResult').innerHTML = '<div style="color:var(--text3)">正在生成大纲，约15秒…</div>';
+  try {
+    const prompt = `你是一位资深小说编辑。请为一部${style}风格的小说《${title}》生成一个10章的章节大纲。
+
+要求：
+1. 每章用一句话概括核心剧情
+2. 章节之间要有连贯性，有起承转合
+3. 格式：每行一个章节，如第一章：标题——剧情概要
+4. 只输出大纲，不要多余的解释`;
+    const res = await fetch(API_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + API_KEY },
+      body: JSON.stringify({ model: MODELS['flash'], messages: [{ role: 'system', content: '你是一位专业的小说编辑，擅长规划章节结构。' }, { role: 'user', content: prompt }], max_tokens: 2000, temperature: 0.7 })
+    });
+    if (!res.ok) throw new Error('API 请求失败');
+    const d = await res.json();
+    const outline = d.choices?.[0]?.message?.content || '';
+    document.getElementById('outlineResult').innerHTML = '<div style="font-size:12px;color:var(--text3);margin-bottom:4px;">📋 生成的大纲（创建后可在故事设定中编辑）</div><pre style="white-space:pre-wrap;font-size:13px;line-height:1.7;background:var(--bg2);padding:12px;border-radius:8px;margin:0;">' + esc(outline) + '</pre>';
+    // 保存大纲到临时变量，创建小说时写入 bible
+    window._pendingOutline = outline;
+    showToast('✅ 大纲已生成');
+  } catch (err) {
+    document.getElementById('outlineResult').innerHTML = '<div style="color:var(--danger);font-size:13px;">❌ ' + esc(err.message) + '</div>';
+  } finally {
+    btn.disabled = false;
+    btn.textContent = '✨ AI 生成大纲';
+  }
+}
+
+// ===== AI 自动为章节命名 =====
+async function suggestTitle(content, chapter) {
+  try {
+    const prompt = '请为以下小说章节内容起一个标题（4-10个字，不要包含第x章）。直接输出标题，不要解释。
+
+' + content.slice(0, 500);
+    const res = await fetch(API_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + API_KEY },
+      body: JSON.stringify({ model: MODELS['flash'], messages: [{ role: 'user', content: prompt }], max_tokens: 50, temperature: 0.5 })
+    });
+    if (!res.ok) return;
+    const d = await res.json();
+    const title = (d.choices?.[0]?.message?.content || '').replace(/[「」]/g, '').trim();
+    if (title && title.length < 30) {
+      chapter.title = title;
+      saveData();
+      renderWrite();
+      showToast('✅ 完成 · 自动命名：《' + title + '》');
+    }
+  } catch(e) {}
+}
+
+// ===== 全屏写作模式 =====
+function toggleFullscreen() {
+  const el = document.getElementById('page-write');
+  if (document.fullscreenElement) {
+    document.exitFullscreen();
+  } else {
+    el.requestFullscreen?.() || el.webkitRequestFullscreen?.();
+  }
+}
+document.addEventListener('fullscreenchange', () => {
+  const btn = document.querySelector('.icon-btn[onclick*="toggleFullscreen"]');
+  if (btn) btn.textContent = document.fullscreenElement ? '✕' : '⛶';
+});
+
+</script>
 
 <!-- ===== 首页 ===== -->
 <div id="page-home" class="page active">
@@ -559,7 +637,6 @@ body {
     <button class="back" onclick="goHome()">←</button>
     <span style="font-size:18px;font-weight:700;flex:1;" id="chaptersTitle"></span>
     <button class="icon-btn" onclick="showBible()" title="故事设定">📖</button>
-    <button class="icon-btn" onclick="showBible()" title="故事设定">📖</button>
     <button class="icon-btn" onclick="exportNovel()" title="导出">📥</button>
     <button class="icon-btn" onclick="deleteNovel()" title="删除小说" style="color:var(--danger);">🗑</button>
   </div>
@@ -577,6 +654,7 @@ body {
       <button data-model="pro">Pro</button>
     </div>
     <button class="icon-btn" onclick="showBible()" title="故事设定">📖</button>
+    <button class="icon-btn" onclick="toggleFullscreen()" title="全屏">⛶</button>
   </div>
   <div class="wordcount-bar" id="wordcountBar">
     <span id="wcLabel">0 字</span>
@@ -627,8 +705,10 @@ body {
     <input type="text" id="novelCustomStyle" placeholder="或自定义风格（可选）">
     <div class="btn-group">
       <button class="btn btn-secondary" onclick="closeModal('newNovelModal')">取消</button>
-      <button class="btn btn-primary" onclick="createNovel()">创建</button>
+      <button class="btn btn-primary" onclick="createNovel()" style="margin-bottom:8px;">创建</button>
     </div>
+    <button class="btn btn-secondary" onclick="generateOutline()" id="outlineBtn" style="width:100%;margin-top:2px;">✨ AI 生成大纲</button>
+    <div id="outlineResult" style="margin-top:10px;font-size:13px;color:var(--text2);line-height:1.6;"></div>
   </div>
 </div>
 
@@ -764,6 +844,14 @@ function loadData() {
 }
 function saveData() {
   localStorage.setItem('novelWriterData', JSON.stringify({ novels, currentModel, customPrompt }));
+  // 自动保存提示（防抖）
+  clearTimeout(window._saveToastTimer);
+  window._saveToastTimer = setTimeout(() => {
+    const el = document.getElementById('toast');
+    if (el && !el.classList.contains('show')) {
+      showToast('💾 已保存');
+    }
+  }, 100);
 }
 
 // ===== Model switch =====
@@ -857,11 +945,16 @@ function createNovel() {
   let style = sel ? sel.dataset.style : '古风';
   const custom = document.getElementById('novelCustomStyle').value.trim();
   if (custom) style = custom;
-  novels.push({ id: Date.now().toString(36), title, style, createdAt: new Date().toISOString(), chapters: [], bible: { synopsis: '', characters: '', outline: '', other: '' } });
+  const nid = Date.now().toString(36);
+  const outlineText = window._pendingOutline || '';
+  const bibleOutline = outlineText ? '【章节大纲】
+' + outlineText : '';
+  novels.push({ id: nid, title, style, createdAt: new Date().toISOString(), chapters: [], bible: { synopsis: '', characters: '', outline: bibleOutline, other: '' } });
+  window._pendingOutline = null;
   saveData();
   closeModal('newNovelModal');
   renderHome();
-  showToast('✅ 创建成功');
+  showToast('✅ 创建成功' + (outlineText ? '（含大纲）' : ''));
 }
 
 // ===== 打开小说 =====
@@ -1413,6 +1506,84 @@ document.querySelectorAll('.confirm-overlay').forEach(el => {
 });
 // Auto-save
 document.addEventListener('visibilitychange', () => { if (document.hidden) saveData(); });
+
+// ===== AI 生成大纲 =====
+async function generateOutline() {
+  const title = document.getElementById('novelTitle').value.trim();
+  if (!title) { showToast('请先输入书名'); return; }
+  const sel = document.querySelector('#styleTags .tag-btn.selected');
+  let style = sel ? sel.dataset.style : '古风';
+  const custom = document.getElementById('novelCustomStyle').value.trim();
+  if (custom) style = custom;
+  const btn = document.getElementById('outlineBtn');
+  btn.disabled = true;
+  btn.textContent = '⏳ 生成中…';
+  document.getElementById('outlineResult').innerHTML = '<div style="color:var(--text3)">正在生成大纲，约15秒…</div>';
+  try {
+    const prompt = `你是一位资深小说编辑。请为一部${style}风格的小说《${title}》生成一个10章的章节大纲。
+
+要求：
+1. 每章用一句话概括核心剧情
+2. 章节之间要有连贯性，有起承转合
+3. 格式：每行一个章节，如第一章：标题——剧情概要
+4. 只输出大纲，不要多余的解释`;
+    const res = await fetch(API_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + API_KEY },
+      body: JSON.stringify({ model: MODELS['flash'], messages: [{ role: 'system', content: '你是一位专业的小说编辑，擅长规划章节结构。' }, { role: 'user', content: prompt }], max_tokens: 2000, temperature: 0.7 })
+    });
+    if (!res.ok) throw new Error('API 请求失败');
+    const d = await res.json();
+    const outline = d.choices?.[0]?.message?.content || '';
+    document.getElementById('outlineResult').innerHTML = '<div style="font-size:12px;color:var(--text3);margin-bottom:4px;">📋 生成的大纲（创建后可在故事设定中编辑）</div><pre style="white-space:pre-wrap;font-size:13px;line-height:1.7;background:var(--bg2);padding:12px;border-radius:8px;margin:0;">' + esc(outline) + '</pre>';
+    // 保存大纲到临时变量，创建小说时写入 bible
+    window._pendingOutline = outline;
+    showToast('✅ 大纲已生成');
+  } catch (err) {
+    document.getElementById('outlineResult').innerHTML = '<div style="color:var(--danger);font-size:13px;">❌ ' + esc(err.message) + '</div>';
+  } finally {
+    btn.disabled = false;
+    btn.textContent = '✨ AI 生成大纲';
+  }
+}
+
+// ===== AI 自动为章节命名 =====
+async function suggestTitle(content, chapter) {
+  try {
+    const prompt = '请为以下小说章节内容起一个标题（4-10个字，不要包含第x章）。直接输出标题，不要解释。
+
+' + content.slice(0, 500);
+    const res = await fetch(API_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + API_KEY },
+      body: JSON.stringify({ model: MODELS['flash'], messages: [{ role: 'user', content: prompt }], max_tokens: 50, temperature: 0.5 })
+    });
+    if (!res.ok) return;
+    const d = await res.json();
+    const title = (d.choices?.[0]?.message?.content || '').replace(/[「」]/g, '').trim();
+    if (title && title.length < 30) {
+      chapter.title = title;
+      saveData();
+      renderWrite();
+      showToast('✅ 完成 · 自动命名：《' + title + '》');
+    }
+  } catch(e) {}
+}
+
+// ===== 全屏写作模式 =====
+function toggleFullscreen() {
+  const el = document.getElementById('page-write');
+  if (document.fullscreenElement) {
+    document.exitFullscreen();
+  } else {
+    el.requestFullscreen?.() || el.webkitRequestFullscreen?.();
+  }
+}
+document.addEventListener('fullscreenchange', () => {
+  const btn = document.querySelector('.icon-btn[onclick*="toggleFullscreen"]');
+  if (btn) btn.textContent = document.fullscreenElement ? '✕' : '⛶';
+});
+
 </script>
 </body>
 </html>
