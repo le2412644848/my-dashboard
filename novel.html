@@ -917,7 +917,15 @@ function renderHome() {
     count.textContent = '';
     return;
   }
-  count.textContent = `共 ${novels.length} 篇小说`;
+  // 统计
+  const totalAll = novels.reduce((s, n) => s + n.chapters.reduce((s2, c) => s2 + (c.content || '').length, 0), 0);
+  const today = new Date().toDateString();
+  const todayWords = novels.reduce((s, n) => s + n.chapters.reduce((s2, c) => {
+    return s2 + ((c.createdAt && new Date(c.createdAt).toDateString() === today) ? (c.content || '').length : 0);
+  }, 0), 0);
+  const allDays = new Set();
+  novels.forEach(n => n.chapters.forEach(c => { if (c.createdAt) allDays.add(new Date(c.createdAt).toDateString()); }));
+  count.innerHTML = `共 ${novels.length} 篇小说 · 总计 ${totalAll.toLocaleString()} 字${todayWords > 0 ? ' · 今日 +' + todayWords.toLocaleString() + ' 字' : ''}${allDays.size > 0 ? ' · 写作 ' + allDays.size + ' 天' : ''}`;
   el.innerHTML = novels.map((n, i) => {
     const total = n.chapters.reduce((s, c) => s + (c.content || '').length, 0);
     const hasBible = n.bible && (n.bible.synopsis || n.bible.characters);
