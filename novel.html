@@ -858,7 +858,10 @@ function renderHome() {
     const hasBible = n.bible && (n.bible.synopsis || n.bible.characters);
     return `<div class="card" onclick="openNovel(${i})">
       <h3>${esc(n.title)} ${hasBible ? '📖' : ''}</h3>
-      <div class="meta">${n.style} · ${n.chapters.length} 章 · ${total.toLocaleString()} 字</div>
+      const novelTokens = n.chapters.reduce((s, c) => s + (c.tokens || 0), 0);
+    return `<div class="card" onclick="openNovel(${i})">
+      <h3>${esc(n.title)} ${hasBible ? '📖' : ''}</h3>
+      <div class="meta">${n.style} · ${n.chapters.length} 章 · ${total.toLocaleString()} 字${novelTokens ? ' · ⚡' + novelTokens.toLocaleString() : ''}</div>
       <span class="tag">${n.style}</span>
       <div class="progress-bar"><div class="fill" style="width:${Math.min(100, Math.round(total/chapterWordTarget*100))}%"></div></div>
     </div>`;
@@ -950,7 +953,7 @@ function renderChapters() {
       <div class="ch-num">${i+1}</div>
       <div class="info" onclick="openChapter(${i})">
         <div class="ch-title">${c.title || '第' + (i+1) + '章'}</div>
-        <div class="ch-meta">${len.toLocaleString()} 字 · ${c.model||'flash'}${c.summary ? ' · 📝' : ''}</div>
+        <div class="ch-meta">${len.toLocaleString()} 字 · ${c.model||'flash'}${c.tokens ? ' · ⚡' + c.tokens.toLocaleString() : ''}${c.summary ? ' · 📝' : ''}</div>
         <div class="progress-bar"><div class="fill" style="width:${pct}%"></div></div>
       </div>
       <div class="actions">
@@ -1168,6 +1171,8 @@ async function doWrite(userText, isFullMessage) {
     if (!c.history) c.history = [];
     c.history.push({ role: 'user', content: userText });
     c.history.push({ role: 'assistant', content: `（${reply.length}字）`, model });
+    c.tokens = (c.tokens || 0) + (window._lastStreamTokens || 0);
+    window._lastStreamTokens = 0;
     c.model = model;
     saveData();
     renderPaper();
@@ -1336,6 +1341,8 @@ async function sendMessage() {
     if (!c.history) c.history = [];
     c.history.push({ role: 'user', content: text });
     c.history.push({ role: 'assistant', content: `（${reply.length}字）`, model });
+    c.tokens = (c.tokens || 0) + (window._lastStreamTokens || 0);
+    window._lastStreamTokens = 0;
     c.model = model;
     saveData();
     renderPaper();
@@ -1468,6 +1475,7 @@ async function generateOutline() {
     if (!res.ok) throw new Error('API 请求失败');
     const d = await res.json();
     const outline = d.choices?.[0]?.message?.content || '';
+    if (d.usage) { totalTokensUsed += d.usage.total_tokens || 0; }
     document.getElementById('outlineResult').innerHTML = '<div style="font-size:12px;color:var(--text3);margin-bottom:4px;">📋 生成的大纲（创建后可在故事设定中编辑）</div><pre style="white-space:pre-wrap;font-size:13px;line-height:1.7;background:var(--bg2);padding:12px;border-radius:8px;margin:0;">' + esc(outline) + '</pre>';
     window._pendingOutline = outline;
     showToast('✅ 大纲已生成');
