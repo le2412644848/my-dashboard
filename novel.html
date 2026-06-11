@@ -1041,37 +1041,29 @@ function autoWrite() {
   const other = n.bible?.other?.trim();
   
   const chNum = (currentChapterId !== null ? currentChapterId : 0) + 1;
+  const cn = ['零','一','二','三','四','五','六','七','八','九','十','十一','十二','十三','十四','十五'];
   
-  let chDesc = '';
+  // 构建完整大纲，标记当前章节
+  let outlineMarked = '';
   if (outline) {
-    const cn = ['零','一','二','三','四','五','六','七','八','九','十','十一','十二','十三','十四','十五'];
-    const cnn = cn[chNum] || '';
     const lines = outline.split('\n');
     for (const line of lines) {
       const t = line.trim();
-      if (t.indexOf('第' + cnn + '章') >= 0 || t.indexOf('第' + chNum + '章') >= 0 || t.indexOf(chNum + '.') === 0 || t.indexOf(chNum + '、') === 0) {
-        chDesc = t.replace(/^第[一二三四五六七八九十百千0-9\s]+[章节][：:。]?/, '').replace(/^[0-9]+[\.\、]/, '').trim();
-        break;
-      }
-    }
-    if (!chDesc && lines.length > 0 && chNum <= lines.length) {
-      chDesc = lines[chNum - 1].trim().replace(/^第[一二三四五六七八九十百千0-9\s]+[章节][：:。]?/, '').replace(/^[0-9]+[\.\、]/, '').trim();
+      if (!t) continue;
+      const cnn = cn[chNum] || '';
+      const isCurrent = t.indexOf('第' + cnn + '章') >= 0 || t.indexOf('第' + chNum + '章') >= 0 || t.indexOf(chNum + '.') === 0 || t.indexOf(chNum + '、') === 0;
+      outlineMarked += (isCurrent ? '>>>>> 当前章: ' : '       ') + t + '\n';
     }
   }
   
   let biblePart = '';
   if (synopsis) biblePart += '【故事梗概】\n' + synopsis + '\n\n';
   if (chars) biblePart += '【人物设定】\n' + chars + '\n\n';
-  if (chDesc) {
-    const label = '第' + (['','一','二','三','四','五','六','七','八','九','十','十一','十二','十三','十四','十五'][chNum] || chNum) + '章';
-    biblePart += '【本章大纲要求】\n' + label + '必须写：' + chDesc + '\n请严格按这个要求写本章，不要写其他章节内容。\n\n';
-  } else if (outline) {
-    biblePart += '【章节大纲】\n' + outline + '\n\n（当前写第' + chNum + '章）\n';
-  }
+  if (outlineMarked) biblePart += '【章节大纲】（标 >>>>> 的是当前要写的章）\n' + outlineMarked + '\n';
   if (other) biblePart += '【其他设定】\n' + other + '\n\n';
   
-  const instruction = hasContent ? '续写本章正文' : '写本章正文';
-  const userMsg = '现在写第' + chNum + '章。\n\n' + biblePart + '请' + instruction + '，严格按本章大纲要求，不要输出章节标题。';
+  const instruction = hasContent ? '续写本章正文（注意看标 >>>>> 的章节要求）' : '写本章正文（严格按 >>>>> 标记的章节要求来写）';
+  const userMsg = '现在写第' + chNum + '章。\n\n' + biblePart + '请' + instruction + '，不要输出章节标题。';
   
   doWrite(userMsg, true);
 }
