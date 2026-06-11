@@ -108,10 +108,12 @@ body{font-family:-apple-system,"PingFang SC","Microsoft YaHei",sans-serif;backgr
     <div id="calendarContent"><div class="loading">计算中…</div></div>
   </div>
 
-  <!-- 🔥 热搜 -->
+
+
+  <!-- 🐙 GitHub 热门 -->
   <div class="card">
-    <div class="card-title">🔥 热搜热点 <button class="btn-link" onclick="fetchHotSearch()">🔄 刷新</button></div>
-    <div id="hotContent"><div class="loading">获取中…</div></div>
+    <div class="card-title">🐙 GitHub 热门 <button class="btn-link" onclick="fetchGitHubTrending()">🔄 刷新</button></div>
+    <div id="githubContent"><div class="loading">获取中…</div></div>
   </div>
 
   <!-- 💱 汇率 -->
@@ -132,11 +134,7 @@ body{font-family:-apple-system,"PingFang SC","Microsoft YaHei",sans-serif;backgr
     <div id="newsContent"><div class="loading">获取中…</div></div>
   </div>
 
-  <!-- 📰 公考资讯 -->
-  <div class="card">
-    <div class="card-title">📰 公考资讯 <button class="btn-link" onclick="fetchExamNews()">🔄 刷新</button></div>
-    <div id="examContent"><div class="loading">获取中…</div></div>
-  </div>
+
 
   <!-- ✅ 待办 -->
   <div class="card">
@@ -148,7 +146,7 @@ body{font-family:-apple-system,"PingFang SC","Microsoft YaHei",sans-serif;backgr
     <div id="todoList"></div>
   </div>
 
-  <div style="text-align:center;padding:10px 0 20px;font-size:11px;color:var(--text3)">数据来源 wttr.in / exchange-api / 微博</div>
+  <div style="text-align:center;padding:10px 0 20px;font-size:11px;color:var(--text3)">数据来源 wttr.in / exchange-api / Google 新闻</div>
 </div>
 
 <!-- 设置 -->
@@ -157,8 +155,8 @@ body{font-family:-apple-system,"PingFang SC","Microsoft YaHei",sans-serif;backgr
     <h2>⚙ 设置</h2>
     <label>城市（天气）</label>
     <input id="cityInput" placeholder="如：北京、Shanghai">
-    <label>公考 RSS 源</label>
-    <input id="rssInput" placeholder="默认国家公务员局">
+    <label>RSS 源（可选）</label>
+    <input id="rssInput" placeholder="自定义新闻源">
     <div class="btn-group">
       <button class="btn-cancel" onclick="closeModal('settingsModal')">取消</button>
       <button class="btn-save" onclick="saveSettings()">保存</button>
@@ -243,17 +241,21 @@ function lunar(y,m,d){
   return yearGz+'年 '+mStr+dStr;
 }
 
-// ===== 热搜 =====
-async function fetchHotSearch(){
-  const el=$('hotContent');el.innerHTML='<div class="loading">🔥 获取热搜…</div>';
+// ===== GitHub 热门 =====
+async function fetchGitHubTrending(){
+  const el=$('githubContent');el.innerHTML='<div class="loading">🐙 获取热门项目…</div>';
   try{
-    const r=await fetch('https://weibo.com/ajax/side/hotSearch');
+    // 取最近7天创建的项目，按星数排序
+    const d=new Date();d.setDate(d.getDate()-7);
+    const dateStr=d.toISOString().split('T')[0];
+    const r=await fetch('https://api.github.com/search/repositories?q=created:%3E'+dateStr+'&sort=stars&order=desc&per_page=10',{headers:{'Accept':'application/vnd.github.v3+json'}});
     if(!r.ok)throw Error('请求失败');
-    const d=await r.json();const list=d?.data?.realtime||[];
-    if(!list.length)throw Error('无数据');
-    el.innerHTML='<ol class="hot-list">'+list.slice(0,15).map((item,i)=>{
+    const j=await r.json();
+    const items=j?.items||[];
+    if(!items.length)throw Error('暂无数据');
+    el.innerHTML='<ol class="hot-list">'+items.map((item,i)=>{
       const rk=i<3?`rank-${i+1}`:'rank-n';
-      return `<li><span class="rank ${rk}">${i+1}</span><span>${esc(item.word||item.note||'')}</span>${item.num?`<span style="margin-left:auto;font-size:11px;color:var(--text3)">${item.num}</span>`:''}</li>`;
+      return `<li><span class="rank ${rk}">${i+1}</span><span><a href="${item.html_url}" target="_blank" style="color:var(--text);text-decoration:none">${esc(item.full_name)}</a></span><span style="margin-left:auto;font-size:11px;color:var(--text3)">⭐${item.stargazers_count}</span></li>`;
     }).join('')+'</ol>';
   }catch(e){el.innerHTML=`<div class="error">❌ ${esc(e.message)}</div>`}
 }
@@ -309,39 +311,16 @@ function delCountdown(i){countdowns.splice(i,1);save();renderCountdowns();}
 async function fetchNews(){
   const el=$('newsContent');el.innerHTML='<div class="loading">📡 获取新闻…</div>';
   try{
-    const sources=['https://rsshub.app/36kr/motif/107','https://rsshub.app/zhihu/daily','https://feedx.net/rss/36kr.xml'];
-    let items=[];
-    for(const url of sources){
-      try{
-        const r=await fetch('https://api.rss2json.com/v1/api.json?rss_url='+encodeURIComponent(url));
-        if(!r.ok)continue;
-        const d=await r.json();
-        if(d.status==='ok'&&d.items){items=d.items;break}
-      }catch(e){continue}
-    }
-    if(!items.length)throw Error('所有源均不可用');
-    items=items.slice(0,12);
-    el.innerHTML=items.map(i=>`<div class="news-item" onclick="window.open('${i.link}','_blank')"><div>${esc(i.title)}</div><div class="src">${i.author||i.source?.name||'资讯'} · ${i.pubDate?new Date(i.pubDate).toLocaleDateString('zh-CN'):''}</div></div>`).join('');
+    const r=await fetch('https://api.rss2json.com/v1/api.json?rss_url='+encodeURIComponent('https://news.google.com/rss?hl=zh-CN&gl=CN&ceid=CN:zh-Hans'));
+    if(!r.ok)throw Error('请求失败');
+    const d=await r.json();
+    if(d.status!=='ok')throw Error('获取失败');
+    const items=(d.items||[]).slice(0,12);
+    if(!items.length)throw Error('无数据');
+    el.innerHTML=items.map(i=>`<div class="news-item" onclick="window.open('${i.link}','_blank')"><div>${esc(i.title)}</div><div class="src">Google 新闻 · ${i.pubDate?new Date(i.pubDate).toLocaleDateString('zh-CN'):''}</div></div>`).join('');
   }catch(e){el.innerHTML='<div class="empty">暂无新闻<br><span style="font-size:11px">'+(e.message||'网络错误')+'</span></div>'}
 }
 
-// ===== 公考资讯 =====
-async function fetchExamNews(){
-  const el=$('examContent');el.innerHTML='<div class="loading">📡 获取公考资讯…</div>';
-  try{
-    const url=rss||'https://rsshub.app/gov/chinanews';
-    const p='https://api.rss2json.com/v1/api.json?rss_url='+encodeURIComponent(url);
-    const res=await fetch(p);
-    if(!res.ok)throw Error('');
-    const d=await res.json();
-    if(d.status!=='ok')throw Error('');
-    const items=d.items.slice(0,10);
-    if(!items.length)throw Error('');
-    el.innerHTML=items.map(i=>`<div class="news-item" onclick="window.open('${i.link}','_blank')"><div>${esc(i.title)}</div><div class="src">${i.author||i.source?.name||'未知'} · ${i.pubDate?new Date(i.pubDate).toLocaleDateString('zh-CN'):''}</div></div>`).join('');
-  }catch(e){
-    el.innerHTML=`<div class="empty">暂无公考资讯<br><span style="font-size:11px">可在设置中配置 RSS 源</span></div>`;
-  }
-}
 
 // ===== 待办 =====
 function renderTodos(){
@@ -356,11 +335,11 @@ function delTodo(i){todos.splice(i,1);save();renderTodos()}
 
 // ===== 设置 =====
 function showSettings(){$('cityInput').value=city;$('rssInput').value=rss;showModal('settingsModal')}
-function saveSettings(){city=$('cityInput').value.trim()||'北京';rss=$('rssInput').value.trim();save();closeModal('settingsModal');fetchWeather();fetchExamNews();toast('已保存')}
+function saveSettings(){city=$('cityInput').value.trim()||'北京';rss=$('rssInput').value.trim();save();closeModal('settingsModal');fetchWeather();toast('已保存')}
 
 // ===== 初始化 =====
 document.querySelectorAll('.modal-overlay').forEach(el=>{el.addEventListener('click',e=>{if(e.target===el)el.classList.remove('active')})});
-load();fetchWeather();renderCalendar();fetchHotSearch();fetchRates();renderCountdowns();fetchNews();fetchExamNews();renderTodos();
+load();fetchWeather();renderCalendar();fetchGitHubTrending();fetchRates();renderCountdowns();fetchNews();renderTodos();
 </script>
 </body>
 </html>
