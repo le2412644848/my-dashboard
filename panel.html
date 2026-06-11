@@ -126,6 +126,12 @@ body{font-family:-apple-system,"PingFang SC","Microsoft YaHei",sans-serif;backgr
     <div id="countdownContent"><div class="loading">加载中…</div></div>
   </div>
 
+  <!-- 📰 今日新闻 -->
+  <div class="card">
+    <div class="card-title">📰 今日新闻 <button class="btn-link" onclick="fetchNews()">🔄 刷新</button></div>
+    <div id="newsContent"><div class="loading">获取中…</div></div>
+  </div>
+
   <!-- 📰 公考资讯 -->
   <div class="card">
     <div class="card-title">📰 公考资讯 <button class="btn-link" onclick="fetchExamNews()">🔄 刷新</button></div>
@@ -299,6 +305,26 @@ function addCountdown(){
 }
 function delCountdown(i){countdowns.splice(i,1);save();renderCountdowns();}
 
+// ===== 今日新闻 =====
+async function fetchNews(){
+  const el=$('newsContent');el.innerHTML='<div class="loading">📡 获取新闻…</div>';
+  try{
+    const sources=['https://rsshub.app/36kr/motif/107','https://rsshub.app/zhihu/daily','https://feedx.net/rss/36kr.xml'];
+    let items=[];
+    for(const url of sources){
+      try{
+        const r=await fetch('https://api.rss2json.com/v1/api.json?rss_url='+encodeURIComponent(url));
+        if(!r.ok)continue;
+        const d=await r.json();
+        if(d.status==='ok'&&d.items){items=d.items;break}
+      }catch(e){continue}
+    }
+    if(!items.length)throw Error('所有源均不可用');
+    items=items.slice(0,12);
+    el.innerHTML=items.map(i=>`<div class="news-item" onclick="window.open('${i.link}','_blank')"><div>${esc(i.title)}</div><div class="src">${i.author||i.source?.name||'资讯'} · ${i.pubDate?new Date(i.pubDate).toLocaleDateString('zh-CN'):''}</div></div>`).join('');
+  }catch(e){el.innerHTML='<div class="empty">暂无新闻<br><span style="font-size:11px">'+(e.message||'网络错误')+'</span></div>'}
+}
+
 // ===== 公考资讯 =====
 async function fetchExamNews(){
   const el=$('examContent');el.innerHTML='<div class="loading">📡 获取公考资讯…</div>';
@@ -334,7 +360,7 @@ function saveSettings(){city=$('cityInput').value.trim()||'北京';rss=$('rssInp
 
 // ===== 初始化 =====
 document.querySelectorAll('.modal-overlay').forEach(el=>{el.addEventListener('click',e=>{if(e.target===el)el.classList.remove('active')})});
-load();fetchWeather();renderCalendar();fetchHotSearch();fetchRates();renderCountdowns();fetchExamNews();renderTodos();
+load();fetchWeather();renderCalendar();fetchHotSearch();fetchRates();renderCountdowns();fetchNews();fetchExamNews();renderTodos();
 </script>
 </body>
 </html>
