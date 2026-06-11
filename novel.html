@@ -764,6 +764,8 @@ function loadData() {
       currentModel = p.currentModel || 'flash';
       customPrompt = p.customPrompt || null;
       chapterWordTarget = p.chapterWordTarget || 2000;
+      totalTokensUsed = p.totalTokensUsed || 0;
+      totalTokensCost = p.totalTokensCost || 0;
       if (document.getElementById('settingsModel')) {
         document.getElementById('settingsModel').value = currentModel;
   document.getElementById('settingsWordTarget').value = chapterWordTarget;
