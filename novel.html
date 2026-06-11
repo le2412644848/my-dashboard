@@ -1203,7 +1203,7 @@ function buildBibleText() {
   let t = '';
   if (b.synopsis) t += '【故事梗概】\n' + b.synopsis + '\n\n';
   if (b.characters) t += '【人物设定】\n' + b.characters + '\n\n';
-  if (b.outline) t += '【章节大纲】\n' + b.outline + '\n\n';
+  // 大纲由 autoWrite 在用户消息中处理，这里不重复传入
   if (b.other) t += '【其他设定】\n' + b.other;
   return t.trim() || '（未设置）';
 }
