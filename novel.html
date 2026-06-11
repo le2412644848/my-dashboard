@@ -289,7 +289,8 @@ body {
   line-height: 1.9;
   font-size: 15px;
 }
-.paper .chapter-content { white-space: pre-wrap; word-wrap: break-word; }
+.paper .chapter-content { word-wrap: break-word; }
+.paper .chapter-content p { text-indent: 2em; margin-bottom: 0.8em; line-height: 2; }
 .paper .chapter-content .empty-hint {
   color: var(--text3);
   text-align: center;
@@ -1106,7 +1107,13 @@ function renderPaper() {
     el.innerHTML = '<div class="empty-hint"><span class="big">✍</span>还没有内容<br>在下方输入想法，开始写作吧</div>';
     return;
   }
-  el.innerHTML = `<span class="model-badge ${c.model||'flash'}">${c.model||'flash'}</span>` + esc(c.content);
+  // 按段落分割渲染
+  const badge = `<span class="model-badge ${c.model||'flash'}">${c.model||'flash'}</span>`;
+  const paragraphs = (c.content || '').split(/
+{2,}/).filter(Boolean);
+  const html = paragraphs.map(p => '<p>' + esc(p.replace(/
+/g, ' ').trim()) + '</p>').join('');
+  el.innerHTML = badge + html;
   document.getElementById('paperArea').scrollTop = document.getElementById('paperArea').scrollHeight;
 }
 function goChapters() {
