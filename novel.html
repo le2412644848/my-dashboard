@@ -802,6 +802,9 @@ body {
       将备份内容粘贴到下方，或将 JSON 文件作为文本文件打开并复制内容。
     </p>
     <textarea id="importData" placeholder="在此粘贴备份的 JSON 内容……" style="width:100%;min-height:120px;max-height:260px;font-size:11px;font-family:monospace;background:var(--bg2);border:1px solid var(--border);border-radius:var(--radius-sm);color:var(--text);padding:10px;resize:vertical;overflow-y:auto;"></textarea>
+    <div style="display:flex;gap:8px;margin-top:8px;">
+      <button class="btn btn-sm btn-secondary" onclick="document.getElementById('importInput').click()" style="flex:1;">📁 选择文件</button>
+    </div>
     <div class="btn-group" style="margin-top:10px;">
       <button class="btn btn-secondary" onclick="closeModal('importModal')">取消</button>
       <button class="btn btn-primary" onclick="doImport()" style="background:var(--danger);">⚠️ 确认导入</button>
@@ -2118,6 +2121,7 @@ function doImport() {
 function importAllData(event) {
   const file = event.target.files?.[0];
   if (!file) return;
+  closeModal('importModal');
   const reader = new FileReader();
   reader.onload = function(e) {
     try {
