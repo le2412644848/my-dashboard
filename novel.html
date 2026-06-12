@@ -22,6 +22,21 @@
   --radius-sm: 8px;
   --shadow: 0 4px 24px rgba(0,0,0,.3);
 }
+[data-theme="light"] {
+  --bg: #f4f6f9;
+  --bg2: #e8ecf1;
+  --card: #ffffff;
+  --card2: #f0f2f5;
+  --border: #d5dbe3;
+  --text: #1a1c23;
+  --text2: #5a6072;
+  --text3: #8b90a0;
+  --accent: #4565db;
+  --accent2: #2ba471;
+  --accent3: #d48806;
+  --danger: #e34d59;
+  --shadow: 0 2px 12px rgba(0,0,0,.08);
+}
 * { margin:0; padding:0; box-sizing:border-box; }
 body {
   font-family: -apple-system, "PingFang SC", "Noto Serif SC", "Source Han Serif SC", "Microsoft YaHei", serif;
@@ -534,6 +549,7 @@ body {
       <button data-model="pro">Pro</button>
     </div>
     <button class="icon-btn" onclick="showSettings()" title="设置">⚙</button>
+    <button class="icon-btn" onclick="toggleTheme()" id="themeBtn" title="切换日间/夜间">🌙</button>
   </div>
   <div class="novel-count" id="novelCount"></div>
   <div id="novelList"></div>
@@ -580,7 +596,11 @@ body {
     </div>
     <button class="icon-btn" onclick="showBible()" title="故事设定">📖</button>
     <button class="icon-btn" id="editToggleBtn" onclick="toggleEditChapter()" title="编辑章节" style="font-size:14px;">✎</button>
+    <button class="icon-btn" id="readingBtn" onclick="toggleReadingMode()" title="阅读模式" style="font-size:14px;">👁</button>
     <button class="icon-btn" onclick="toggleFullscreen()" title="全屏">⛶</button>
+  </div>
+  <div id="outlineHint" style="display:none;margin-bottom:8px;padding:6px 12px;background:var(--card);border:1px solid var(--border);border-radius:8px;font-size:12px;color:var(--text2);cursor:pointer;" onclick="this.classList.toggle('expanded');this.querySelector('span').textContent=this.classList.contains('expanded')?(this.dataset.full||''):(this.dataset.short||'')">
+    <span></span>
   </div>
   <div class="wordcount-bar" id="wordcountBar">
     <span id="wcLabel">0 字</span>
@@ -705,6 +725,12 @@ body {
           <input type="range" id="settingsFontSize" min="13" max="22" step="1" value="15" style="flex:1;" oninput="document.getElementById('settingsFontSizeVal').textContent=this.value+'px'">
           <span id="settingsFontSizeVal" style="font-size:14px;font-weight:600;min-width:40px;text-align:center;color:var(--accent);">15px</span>
         </div>
+        <label>🔤 正文字体</label>
+        <select id="settingsFontFamily" style="margin-bottom:14px;">
+          <option value="default">系统默认</option>
+          <option value="serif">衬线体（宋体风格）</option>
+          <option value="mono">等宽体（Typewriter）</option>
+        </select>
       </div>
     </div>
     
@@ -857,8 +883,11 @@ let totalTokensCost = 0;
 let temperature = 0.7;
 let aiColor = '#f0a840';
 let contentColor = '#e4e9f2';
-const CNY_RATE = 7.2; // 美元→人民币
+const CNY_RATE = 7.2;
 let fontSize = 15;
+let fontFamily = 'default';
+let currentTheme = 'dark';
+let isReadingMode = false;
 
 const DEFAULT_PROMPT = `你是一位专业的小说写作助手。正在写一部{style}风格的小说。
 
@@ -963,6 +992,20 @@ async function dbLoad(key) {
 }
 function fallbackToLS() { /* 忽略，静默降级 */ }
 
+// ===== 主题切换 =====
+function toggleTheme() {
+  currentTheme = currentTheme === 'dark' ? 'light' : 'dark';
+  document.documentElement.setAttribute('data-theme', currentTheme);
+  const btn = document.getElementById('themeBtn');
+  if (btn) btn.textContent = currentTheme === 'dark' ? '🌙' : '☀';
+  // 日间模式调整内容颜色
+  if (currentTheme === 'light') contentColor = '#1a1c23'; else contentColor = '#e4e9f2';
+  // 立即重渲染
+  if (currentChapterId !== null) { try { renderPaper(); } catch(e) {} }
+  dbSave('theme', currentTheme);
+  dbSave('contentColor', contentColor);
+}
+
 function loadData() {
   dbLoad('novelWriterData').then(p => {
     if (p) {
@@ -987,6 +1030,8 @@ function loadData() {
         if (d) { const p = JSON.parse(d); novels = p.novels || []; dbSave('novelWriterData', p); }
       } catch(e) {}
     }
+    // 加载主题偏好
+    dbLoad('theme').then(t => { if (t) { currentTheme = t; document.documentElement.setAttribute('data-theme', t); const btn = document.getElementById('themeBtn'); if (btn) btn.textContent = t === 'dark' ? '🌙' : '☀'; } }).catch(() => {});
     updateModelUI();
     const pa = document.getElementById('paperArea');
     if (pa) pa.style.fontSize = fontSize + 'px';
@@ -1094,10 +1139,11 @@ function renderHome() {
   el.innerHTML = novels.map((n, i) => {
     const total = n.chapters.reduce((s, c) => s + countChinese(c.content), 0);
     const hasBible = n.bible && (n.bible.synopsis || n.bible.characters);
+    const doneCh = n.chapters.filter(c => (c.content || '').length > 100).length;
     const novelTokens = n.chapters.reduce((s, c) => s + (c.tokens || 0), 0);
     return `<div class="card" onclick="openNovel(${i})">
       <h3>${esc(n.title)} ${hasBible ? '📖' : ''}</h3>
-      <div class="meta">${n.style} · ${n.chapters.length} 章 · ${total.toLocaleString()} 字${novelTokens ? ' · ⚡' + novelTokens.toLocaleString() : ''}${novelTokens ? ' · ¥' + n.chapters.reduce((s, c) => s + (c.cost || 0), 0).toFixed(4) : ''}}</div>
+      <div class="meta">${n.style} · ${n.chapters.length} 章${doneCh > 0 ? ' · 已完成 ' + doneCh + '/' + n.chapters.length + ' 章' : ''} · ${total.toLocaleString()} 字${novelTokens ? ' · ⚡' + novelTokens.toLocaleString() : ''}${novelTokens ? ' · ¥' + n.chapters.reduce((s, c) => s + (c.cost || 0), 0).toFixed(4) : ''}}</div>
       <span class="tag">${n.style}</span>
       <div class="progress-bar"><div class="fill" style="width:${Math.min(100, Math.round(total/chapterWordTarget*100))}%"></div></div>
     </div>`;
@@ -1214,7 +1260,7 @@ function renderChapters() {
     return `<div class="card chapter-item">
       <div class="ch-num">${i+1}</div>
       <div class="info" onclick="openChapter(${i})">
-        <div class="ch-title">${c.title || '第' + (i+1) + '章'}</div>
+        <div class="ch-title">${(c.content||'').length > 100 ? '✅ ' : '📝 '}${c.title || '第' + (i+1) + '章'}</div>
         <div class="ch-meta">${len.toLocaleString()} 字 · ${c.model||'flash'}${c.tokens ? ' · ⚡' + c.tokens.toLocaleString() : ''}${c.cost ? ' ¥' + c.cost.toFixed(4) : ''}${c.summary ? ' · 📝' : ''}</div>
         <div class="progress-bar"><div class="fill" style="width:${pct}%"></div></div>
       </div>
@@ -1311,7 +1357,9 @@ function renderWrite() {
   document.getElementById('writeTitle').textContent = n.title + ' · 第' + (currentChapterId+1) + '章' + (c.title ? '：' + c.title : '');
   const pa = document.getElementById('paperArea');
   if (pa) pa.style.fontSize = fontSize + 'px';
+  applyFontFamily();
   updateWordCountBar();
+  updateOutlineHint();
   renderPaper();
 }
 function updateWordCountBar() {
@@ -1397,6 +1445,44 @@ function togglePaperFold() {
     pa.style.padding = '24px 20px';
     btn.textContent = '▼';
   }
+}
+// ===== 阅读模式 =====
+function toggleReadingMode() {
+  isReadingMode = !isReadingMode;
+  const sections = document.getElementById('page-write').querySelectorAll('.input-section,.wordcount-bar,#outlineHint,#foldPaperBtn');
+  sections.forEach(s => s.style.display = isReadingMode ? 'none' : '');
+  const headerBtns = document.getElementById('page-write').querySelector('.header');
+  if (headerBtns) {
+    headerBtns.querySelectorAll('.model-switch,.icon-btn').forEach(b => { if (b.id !== 'readingBtn' && b.id !== 'foldPaperBtn') b.style.display = isReadingMode ? 'none' : ''; });
+  }
+  const btn = document.getElementById('readingBtn');
+  if (btn) btn.textContent = isReadingMode ? '📖' : '👁';
+  if (isReadingMode) {
+    document.getElementById('paperArea').style.maxHeight = '100vh';
+    showToast('📖 阅读模式');
+  } else {
+    document.getElementById('paperArea').style.maxHeight = isPaperFolded ? '0' : '60vh';
+  }
+}
+// ===== 更新大纲提示 =====
+function updateOutlineHint() {
+  const el = document.getElementById('outlineHint');
+  if (!el) return;
+  const n = getNovel();
+  if (!n || !n.bible || !n.bible.outline || currentChapterId === null) { el.style.display = 'none'; return; }
+  const chs = splitOutline(n.bible.outline);
+  const chNum = currentChapterId + 1;
+  if (chNum > chs.length) { el.style.display = 'none'; return; }
+  const desc = chs[chNum - 1] || '';
+  el.style.display = 'block';
+  el.dataset.full = desc;
+  el.dataset.short = '📋 本章大纲: ' + desc.slice(0, 60) + (desc.length > 60 ? '…' : '');
+  el.querySelector('span').textContent = el.dataset.short;
+}
+// ===== 字体设置同步 =====
+function applyFontFamily() {
+  const ff = fontFamily === 'serif' ? '"Noto Serif SC","STSong",serif' : fontFamily === 'mono' ? '"SF Mono",monospace' : '-apple-system,"PingFang SC","Microsoft YaHei",serif';
+  document.getElementById('paperArea').style.fontFamily = ff;
 }
 function toggleEditChapter() {
   const n = getNovel();
@@ -1877,6 +1963,8 @@ function showSettings() {
   if (cc) cc.value = contentColor;
   const fs = document.getElementById('settingsFontSize');
   if (fs) { fs.value = fontSize; document.getElementById('settingsFontSizeVal').textContent = fontSize + 'px'; }
+  const ff = document.getElementById('settingsFontFamily');
+  if (ff) ff.value = fontFamily;
   document.getElementById('settingsApiKey').value = API_KEY;
   showModal('settingsModal');
 }
@@ -1904,6 +1992,9 @@ function saveSettings() {
   if (cc) contentColor = cc.value;
   const fs = document.getElementById('settingsFontSize');
   if (fs) fontSize = parseInt(fs.value) || 15;
+  const ff = document.getElementById('settingsFontFamily');
+  if (ff) fontFamily = ff.value;
+  applyFontFamily();
   // 立即应用字号到 paper
   document.getElementById('paperArea')?.style.setProperty('font-size', fontSize + 'px');
   saveData();
