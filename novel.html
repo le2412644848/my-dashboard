@@ -788,6 +788,7 @@ body {
     <div style="display:flex;gap:8px;margin-top:8px;">
       <button class="btn btn-sm btn-secondary" onclick="closeModal('backupModal')" style="flex:1;">关闭</button>
       <button class="btn btn-sm btn-primary" onclick="showImportPanel()" style="flex:1;background:linear-gradient(135deg,var(--accent3),var(--danger));">📂 导入备份</button>
+      <button class="btn btn-sm btn-danger" onclick="if(confirm('确定清空所有数据？不可恢复！先导出备份！')){localStorage.removeItem('novelWriterData');location.reload();}" style="width:100%;margin-top:6px;">🗑️ 重置全部数据</button>
     </div>
   </div>
 </div>
