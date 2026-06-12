@@ -751,7 +751,7 @@ body {
     <textarea id="bibleCharacters" rows="5" placeholder="角色名：性格、外貌、背景、目标&#10;如：&#10;· 沈青娥：18岁，江南织造之女，聪慧坚韧，为救父亲上京&#10;· 赵景川：25岁，锦衣卫北镇抚司千户，冷面热心，身世成谜" style="min-height:90px;"></textarea>
     
     <label>章节大纲</label>
-    <textarea id="bibleOutline" rows="6" placeholder="每章大致内容：&#10;第1章：XXX&#10;第2章：XXX&#10;..." style="min-height:100px;max-height:300px;overflow-y:auto;" oninput="updateOutlinePreview()"></textarea>
+    <textarea id="bibleOutline" rows="6" placeholder="每章大致内容：&#10;第1章：XXX&#10;第2章：XXX&#10;..." style="min-height:100px;max-height:300px;overflow-y:auto;" oninput="debouncePreview()"></textarea>
     <div id="outlinePreview" style="font-size:12px;color:var(--text2);margin:2px 0 12px 0;line-height:1.5;display:none;"></div>
     
     <label>其他设定</label>
@@ -1111,18 +1111,30 @@ function showBible() {
   document.getElementById('bibleOutline').value = n.bible.outline || '';
   document.getElementById('bibleOther').value = n.bible.other || '';
   showModal('bibleModal');
-  setTimeout(updateOutlinePreview, 50);
+  setTimeout(updateOutlinePreview, 100);
 }
 // ===== 大纲匹配预览 =====
+let _previewTimer = null;
+function debouncePreview() {
+  clearTimeout(_previewTimer);
+  _previewTimer = setTimeout(updateOutlinePreview, 300);
+}
 function updateOutlinePreview() {
   const text = document.getElementById('bibleOutline')?.value || '';
   const el = document.getElementById('outlinePreview');
   if (!el) return;
-  if (!text.trim()) { el.innerHTML = ''; el.style.display = 'none'; return; }
+  if (!text.trim() || text.length < 10) { el.innerHTML = ''; el.style.display = 'none'; return; }
   el.style.display = 'block';
-  const chs = splitOutline(text);
-  el.innerHTML = '✅ 识别到 <strong>' + chs.length + '</strong> 章' +
-    (chs.length > 0 ? ' · 从"第X章"标题分割' : ' · 未识别到章节标题');
+  // 快速检测章节标题数量（不构建完整章节块，避免大文本卡顿）
+  const lines = text.split('\n');
+  let headerCount = 0;
+  for (const line of lines) {
+    if (/第[\d０１２３４５６７８９一二三四五六七八九十百千]+章/.test(line) || /^\d+[.、]/.test(line.trim())) headerCount++;
+  }
+  const totalLines = lines.filter(l => l.trim()).length;
+  el.innerHTML = (headerCount > 0
+    ? '✅ 检测到 <strong>' + headerCount + '</strong> 个章节标题 · 共 ' + totalLines + ' 行'
+    : '📋 共 ' + totalLines + ' 行（未检测到"第X章"标题，按行号匹配）');
 }
 
 function saveBible() {
