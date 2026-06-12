@@ -1491,7 +1491,10 @@ async function generateAllChapters() {
   if (progress) progress.style.display = 'block';
   if (btn) btn.disabled = true;
   
+  // 先切到写作页触发首次渲染，用户离开也不影响后续生成
+  currentChapterId = 0;
   switchPage('page-write');
+  renderWrite();
   
   for (let i = 0; i < chs.length; i++) {
     if (stopGeneratingAll) break;
@@ -1499,11 +1502,14 @@ async function generateAllChapters() {
     if (n.chapters[i].content && n.chapters[i].content.length > 100) continue;
     
     currentChapterId = i;
-    renderWrite();
+    // 仅在写作页可见时更新UI
+    if (document.getElementById('page-write').classList.contains('active')) {
+      renderWrite();
+    }
     if (status) status.textContent = '📝 正在生成第 ' + (i+1) + '/' + chs.length + ' 章…';
     if (bar) bar.style.width = ((i / chs.length) * 100) + '%';
     
-    // 等待当前章生成完成（doWrite 完成时会调用 _genAllNext）
+    // 等待当前章生成完成
     await new Promise((resolve) => {
       window._genAllNext = resolve;
       autoWrite();
@@ -1599,7 +1605,7 @@ async function doWrite(userText, isFullMessage) {
     const res = await fetch(API_URL, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${API_KEY}` },
-      body: JSON.stringify({ model: MODELS[model], messages, max_tokens: 8192, temperature: temperature, stream: true }),
+      body: JSON.stringify({ model: MODELS[model], messages, max_tokens: 12000, temperature: temperature, stream: true }),
       signal: currentAbortController.signal
     });
     if (!res.ok) throw new Error(`API ${res.status}`);
@@ -1836,7 +1842,7 @@ async function sendMessage() {
     const res = await fetch(API_URL, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${API_KEY}` },
-      body: JSON.stringify({ model: MODELS[model], messages, max_tokens: 8192, temperature: temperature, stream: true }),
+      body: JSON.stringify({ model: MODELS[model], messages, max_tokens: 12000, temperature: temperature, stream: true }),
       signal: currentAbortController.signal
     });
     if (!res.ok) {
