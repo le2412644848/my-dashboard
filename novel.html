@@ -565,7 +565,15 @@ body {
     <button class="icon-btn" onclick="deleteNovel()" title="删除小说" style="color:var(--danger);">🗑</button>
   </div>
   <div id="chapterList"></div>
+  <div id="genAllProgress" style="display:none;margin-top:10px;padding:12px;background:var(--card);border:1px solid var(--border);border-radius:var(--radius);text-align:center;font-size:14px;">
+    <span id="genAllStatus">正在生成…</span>
+    <div style="margin-top:6px;height:4px;background:var(--bg2);border-radius:2px;overflow:hidden;">
+      <div id="genAllBar" style="height:100%;width:0%;background:linear-gradient(90deg,var(--accent2),var(--accent));border-radius:2px;transition:width .3s;"></div>
+    </div>
+    <button class="btn btn-sm btn-danger" onclick="stopGeneratingAll=true;" style="margin-top:8px;">⏹ 停止</button>
+  </div>
   <button class="btn btn-primary" onclick="startNewChapter()" style="margin-top:10px;">+ 写新章节</button>
+  <button class="btn btn-secondary" onclick="generateAllChapters()" id="genAllBtn" style="width:100%;margin-top:8px;">⚡ 一键生成全部章节</button>
 </div>
 
 <!-- ===== 写作页 ===== -->
@@ -592,8 +600,9 @@ body {
       <button class="temp-adjust" onclick="adjustTemp(0.1)" title="提高创造性" style="background:none;border:1px solid var(--border);color:var(--accent3);width:28px;height:28px;border-radius:50%;font-size:16px;cursor:pointer;display:flex;align-items:center;justify-content:center;padding:0;line-height:1;">+</button>
     </span>
     <span id="wcTokens" style="margin-left:auto;font-size:11px;color:var(--text3);"></span>
+    <button class="icon-btn" id="foldPaperBtn" onclick="togglePaperFold()" title="折叠/展开正文" style="font-size:12px;width:28px;height:28px;flex-shrink:0;">▼</button>
   </div>
-  <div class="paper" id="paperArea">
+  <div class="paper" id="paperArea" style="max-height:60vh;overflow-y:auto;transition:max-height .3s ease;">
 
     <div class="chapter-content" id="chapterContent">
       <div class="empty-hint"><span class="big">✍</span>还没有内容<br>在下方输入想法，开始写作吧</div>
@@ -882,6 +891,9 @@ let currentNovelId = null;
 let currentChapterId = null;
 let isWriting = false;
 let isEditingChapter = false;
+let isPaperFolded = false;
+let isGeneratingAll = false;
+let stopGeneratingAll = false;
 let customPrompt = null;
 let currentAbortController = null;
 
@@ -1326,6 +1338,24 @@ function renderPaper() {
   document.getElementById('paperArea').scrollTop = document.getElementById('paperArea').scrollHeight;
   } catch(err) { console.error('renderPaper error:', err); showToast('渲染出错: ' + err.message); }
 }
+// ===== 折叠正文 =====
+function togglePaperFold() {
+  isPaperFolded = !isPaperFolded;
+  const pa = document.getElementById('paperArea');
+  const btn = document.getElementById('foldPaperBtn');
+  if (!pa || !btn) return;
+  if (isPaperFolded) {
+    pa.style.maxHeight = '0';
+    pa.style.overflow = 'hidden';
+    pa.style.padding = '0 20px';
+    btn.textContent = '▶';
+  } else {
+    pa.style.maxHeight = '60vh';
+    pa.style.overflow = 'auto';
+    pa.style.padding = '24px 20px';
+    btn.textContent = '▼';
+  }
+}
 function toggleEditChapter() {
   const n = getNovel();
   if (!n || currentChapterId === null || !n.chapters[currentChapterId]) { showToast('没有内容可编辑'); return; }
@@ -1416,6 +1446,66 @@ async function generateSpecificChapter() {
   
   // 自动调用按大纲续写
   setTimeout(() => autoWrite(), 300);
+}
+
+// ===== 一键生成全部章节 =====
+async function generateAllChapters() {
+  const n = getNovel();
+  if (!n) { showToast('请先选择小说'); return; }
+  if (!n.bible || !n.bible.outline || !n.bible.outline.trim()) {
+    showToast('❌ 请先在「📖 故事设定」中填写章节大纲'); return;
+  }
+  if (isGeneratingAll) return;
+  stopGeneratingAll = false;
+  isGeneratingAll = true;
+  
+  const chs = splitOutline(n.bible.outline);
+  if (chs.length === 0) { showToast('❌ 未识别到章节'); isGeneratingAll = false; return; }
+  
+  // 确保章节列表足够
+  while (n.chapters.length < chs.length) {
+    n.chapters.push({
+      id: Date.now().toString(36) + '_' + n.chapters.length,
+      title: '', content: '', summary: '',
+      model: currentModel, createdAt: new Date().toISOString(), history: []
+    });
+  }
+  saveData();
+  
+  // 显示进度
+  const progress = document.getElementById('genAllProgress');
+  const status = document.getElementById('genAllStatus');
+  const bar = document.getElementById('genAllBar');
+  const btn = document.getElementById('genAllBtn');
+  if (progress) progress.style.display = 'block';
+  if (btn) btn.disabled = true;
+  
+  switchPage('page-write');
+  
+  for (let i = 0; i < chs.length; i++) {
+    if (stopGeneratingAll) break;
+    // 跳过已有内容的章节
+    if (n.chapters[i].content && n.chapters[i].content.length > 100) continue;
+    
+    currentChapterId = i;
+    renderWrite();
+    if (status) status.textContent = '📝 正在生成第 ' + (i+1) + '/' + chs.length + ' 章…';
+    if (bar) bar.style.width = ((i / chs.length) * 100) + '%';
+    
+    // 等待当前章生成完成（doWrite 完成时会调用 _genAllNext）
+    await new Promise((resolve) => {
+      window._genAllNext = resolve;
+      autoWrite();
+    });
+    window._genAllNext = null;
+  }
+  
+  if (status) status.textContent = stopGeneratingAll ? '⏹ 已停止' : '✅ 全部生成完成！';
+  if (bar) bar.style.width = '100%';
+  if (btn) btn.disabled = false;
+  isGeneratingAll = false;
+  renderChapters();
+  showToast(stopGeneratingAll ? '⏹ 已停止' : '✅ 全部章节生成完成');
 }
 
 function autoWrite() {
@@ -1583,6 +1673,7 @@ async function doWrite(userText, isFullMessage) {
     renderPaper();
     updateWordCountBar();
     showToast(`✅ 完成 · ${reply.length.toLocaleString()} 字`);
+    if (window._genAllNext) window._genAllNext();
   } catch (err) {
     if (err.name === 'AbortError') {
       const el2 = document.getElementById('chapterContent');
@@ -1604,6 +1695,7 @@ async function doWrite(userText, isFullMessage) {
     if (sb) sb.disabled = false;
     const stopBtn = document.getElementById('stopBtn');
     if (stopBtn) stopBtn.style.display = 'none';
+    if (window._genAllNext && err && err.name !== 'AbortError') window._genAllNext();
   }
 }
 function setQuickAction(action) {
