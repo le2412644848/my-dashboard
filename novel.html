@@ -998,6 +998,7 @@ function loadData() {
     updateModelUI();
     const pa = document.getElementById('paperArea');
     if (pa) pa.style.fontSize = fontSize + 'px';
+    renderHome();
   });
 }
 function saveData() {
@@ -2198,7 +2199,6 @@ function exportNovel() {
 
 // ===== 初始化 =====
 loadData();
-renderHome();
 
 // Click overlay to close
 document.querySelectorAll('.modal-overlay').forEach(el => {
