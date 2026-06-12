@@ -288,7 +288,7 @@ body {
   font-size: 15px;
   resize: none;
   min-height: 48px;
-  max-height: 130px;
+  max-height: 200px;
   font-family: inherit;
   line-height: 1.6;
   transition: border-color .2s;
@@ -611,7 +611,7 @@ body {
       <button class="qa-btn" onclick="setQuickAction('推进剧情')">推进剧情</button>
     </div>
     <div class="input-row">
-      <textarea id="userInput" rows="2" id="userInput" rows="2" placeholder="输入想法…" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendMessage();}"></textarea>
+      <textarea id="userInput" rows="3" placeholder="输入想法…" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendMessage();}"></textarea>
       <button class="send-btn" id="sendBtn" onclick="sendMessage()">➤</button>
       <button class="stop-btn" id="stopBtn" onclick="stopWriting()" style="display:none;">⏹</button>
     </div>
@@ -954,7 +954,7 @@ function openDB() {
   });
 }
 let _dbPromise = null;
-function getDB() { if (!_dbPromise) _dbPromise = openDB(); return _dbPromise; }
+function getDB() { if (!_dbPromise) _dbPromise = openDB().catch(e => { _dbPromise = null; throw e; }); return _dbPromise; }
 async function dbSave(key, val) {
   try { const db = await getDB(); db.transaction('data','readwrite').objectStore('data').put(JSON.stringify(val), key); } catch(e) { fallbackToLS(); }
 }
@@ -991,7 +991,7 @@ function loadData() {
     const pa = document.getElementById('paperArea');
     if (pa) pa.style.fontSize = fontSize + 'px';
     renderHome();
-  });
+  }).catch(() => renderHome());
 }
 function saveData() {
   // 存入前清理无用数据
@@ -1560,9 +1560,9 @@ async function generateAllChapters() {
 
 function autoWrite() {
   const n = getNovel();
-  if (!n) { showToast('请先选择小说'); return; }
+  if (!n) { showToast('请先选择小说'); if (window._genAllNext) window._genAllNext(); return; }
   const c = n.chapters[currentChapterId];
-  if (!c) { showToast('请先创建章节'); return; }
+  if (!c) { showToast('请先创建章节'); if (window._genAllNext) window._genAllNext(); return; }
   
   const hasContent = c.content && c.content.length > 50;
   const outline = n.bible?.outline?.trim();
@@ -1601,7 +1601,7 @@ function autoWrite() {
 // 直接发送，不经过输入框
 // isFullMessage=true 时 userText 已经是完整的用户消息，不包装
 async function doWrite(userText, isFullMessage, _retryCount) {
-  if (isWriting) return;
+  if (isWriting) { if (window._genAllNext) window._genAllNext(); return; }
   currentAbortController = new AbortController();
   const maxRetry = _retryCount === undefined ? 1 : 0; // 首次失败自动重试1次
   try {
@@ -2112,7 +2112,7 @@ async function generateOutline() {
     const res = await fetch(API_URL, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + API_KEY },
-      body: JSON.stringify({ model: MODELS['flash'], messages: [{ role: 'system', content: '你是一位专业的小说编辑，擅长规划章节结构。' }, { role: 'user', content: prompt }], max_tokens: 2000, temperature: 0.7 })
+      body: JSON.stringify({ model: MODELS[currentModel], messages: [{ role: 'system', content: '你是一位专业的小说编辑，擅长规划章节结构。' }, { role: 'user', content: prompt }], max_tokens: 2000, temperature: 0.7 })
     });
     if (!res.ok) throw new Error('API 请求失败');
     const d = await res.json();
