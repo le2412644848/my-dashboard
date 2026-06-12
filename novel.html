@@ -1634,6 +1634,8 @@ async function generateAllChapters() {
     window._genAllNext = null;
     // 更新章节列表进度
     try { renderChapters(); } catch(e) {}
+    // 安全兜底：如果 _genAllNext 没被正确清理，2分钟后自动继续
+    const safetyTimeout = setTimeout(() => { if (window._genAllNext) { window._genAllNext(); window._genAllNext = null; } }, 120000);
   }
   
   if (status) status.textContent = stopGeneratingAll ? '⏹ 已停止' : '✅ 全部生成完成！';
@@ -1686,10 +1688,11 @@ function autoWrite() {
 
 // 直接发送，不经过输入框
 // isFullMessage=true 时 userText 已经是完整的用户消息，不包装
-async function doWrite(userText, isFullMessage, _retryCount) {
+async function doWrite(userText, isFullMessage) {
   if (isWriting) { if (window._genAllNext) window._genAllNext(); return; }
+  const maxRetries = 1;
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
   currentAbortController = new AbortController();
-  const maxRetry = _retryCount === undefined ? 1 : 0; // 首次失败自动重试1次
   try {
     isWriting = true;
     document.getElementById('sendBtn').disabled = true;
@@ -1811,6 +1814,7 @@ async function doWrite(userText, isFullMessage, _retryCount) {
     updateWordCountBar();
     showToast(`✅ 完成 · ${reply.length.toLocaleString()} 字`);
     if (window._genAllNext) window._genAllNext();
+    break; // 成功，退出重试循环
   } catch (err) {
     if (err.name === 'AbortError') {
       const el2 = document.getElementById('chapterContent');
@@ -1819,12 +1823,11 @@ async function doWrite(userText, isFullMessage, _retryCount) {
       }
       showToast('⏹ 已停止生成');
     } else {
-      // 自动重试一次
-      if (maxRetry > 0) {
+      // 还可以重试
+      if (attempt < maxRetries) {
         showToast('🔄 失败，3秒后重试…');
         await new Promise(r => setTimeout(r, 3000));
-        isWriting = false; currentAbortController = null;
-        return doWrite(userText, isFullMessage, (maxRetry||0) - 1);
+        continue;
       }
       const el2 = document.getElementById('chapterContent');
       if (el2) {
@@ -1841,6 +1844,7 @@ async function doWrite(userText, isFullMessage, _retryCount) {
     const stopBtn = document.getElementById('stopBtn');
     if (stopBtn) stopBtn.style.display = 'none';
   }
+  } // end for retry loop
 }
 function setQuickAction(action) {
   const inp = document.getElementById('userInput');
