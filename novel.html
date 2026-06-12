@@ -580,6 +580,7 @@ body {
 <div id="page-write" class="page writing-container">
   <div class="header" style="margin-bottom:8px;">
     <button class="back" onclick="if(isWriting||isGeneratingAll){showConfirm('正在写作中，确定离开？后台会继续写。',function(){goChapters();})}else{goChapters()}">←</button>
+    <button class="icon-btn" onclick="goHome()" title="首页" style="font-size:13px;">🏠</button>
     <span class="write-title" id="writeTitle" style="font-size:16px;font-weight:600;flex:1;"></span>
     <div class="model-switch" id="writeModelSwitch">
       <button data-model="flash" class="active">Flash</button>
