@@ -1239,10 +1239,11 @@ function deleteChapter(idx) {
 function clearChapters() {
   const n = getNovel();
   if (!n) return;
-  n.chapters.forEach(c => { c.content = ''; c.summary = ''; c.history = []; c.tokens = 0; c.cost = 0; c._lastAiReply = undefined; });
+  n.chapters = [];
   saveData();
+  currentChapterId = null;
   renderChapters();
-  showToast('🔄 已清空所有章节内容');
+  showToast('🔄 已清空所有章节');
 }
 function deleteNovel() {
   const n = getNovel();
