@@ -2045,14 +2045,18 @@ function testPrompt() {
 
 // ===== 导出/导入备份 =====
 function exportAllData() {
-  const data = localStorage.getItem('novelWriterData');
-  if (!data || data === '{}') { showToast('❌ 没有数据可导出'); return; }
-  document.getElementById('backupData').value = data;
-  const info = JSON.parse(data);
-  const novelCount = info.novels?.length || 0;
-  const chCount = info.novels?.reduce((s, n) => s + (n.chapters?.length || 0), 0) || 0;
-  document.getElementById('backupInfo').textContent = `共 ${novelCount} 篇小说，${chCount} 个章节，数据大小 ${(data.length/1024).toFixed(1)}KB`;
-  showModal('backupModal');
+  try {
+    const data = localStorage.getItem('novelWriterData');
+    if (!data || data === '{}') { showToast('❌ 没有数据可导出'); return; }
+    document.getElementById('backupData').value = data;
+    const info = JSON.parse(data);
+    const novelCount = info.novels?.length || 0;
+    const chCount = info.novels?.reduce((s, n) => s + (n.chapters?.length || 0), 0) || 0;
+    document.getElementById('backupInfo').textContent = `共 ${novelCount} 篇小说，${chCount} 个章节，数据大小 ${(data.length/1024).toFixed(1)}KB`;
+    showModal('backupModal');
+  } catch(e) {
+    showToast('❌ 导出失败: ' + e.message);
+  }
 }
 function copyBackup() {
   const ta = document.getElementById('backupData');
