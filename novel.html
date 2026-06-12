@@ -320,6 +320,32 @@ body {
   transition: all .2s;
 }
 .input-section .input-row .send-btn:disabled { opacity: .4; cursor: not-allowed; }
+.input-section .input-row .stop-btn {
+  width: 48px; height: 48px;
+  border-radius: 50%;
+  border: 2px solid var(--danger);
+  background: rgba(240,80,106,.15);
+  color: var(--danger);
+  font-size: 18px;
+  cursor: pointer;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all .2s;
+  animation: pulseStop 1.5s ease infinite;
+}
+@keyframes pulseStop { 0%,100% { box-shadow: 0 0 0 0 rgba(240,80,106,.3); } 50% { box-shadow: 0 0 0 8px rgba(240,80,106,0); } }
+.input-section .input-row .stop-btn:hover { background: rgba(240,80,106,.3); }
+@keyframes blinkCursor { 0%,100% { opacity: 1; } 50% { opacity: 0; } }
+.ai-cursor::after { content: '▍'; animation: blinkCursor .9s step-end infinite; color: inherit; }
+.setting-group { border: 1px solid var(--border); border-radius: var(--radius-sm); margin-bottom: 10px; overflow: hidden; }
+.setting-group .group-header { display: flex; align-items: center; gap: 8px; padding: 10px 14px; cursor: pointer; font-size: 13px; font-weight: 600; color: var(--text); background: var(--bg2); transition: background .2s; user-select: none; }
+.setting-group .group-header:hover { background: var(--card2); }
+.setting-group .group-header .toggle-icon { font-size: 11px; color: var(--text3); transition: transform .2s; }
+.setting-group .group-header.open .toggle-icon { transform: rotate(90deg); }
+.setting-group .group-body { padding: 12px 14px 4px; display: none; }
+.setting-group .group-body.open { display: block; }
 .input-section .input-hint { font-size: 12px; color: var(--text3); text-align: right; padding: 6px 4px 0; }
 .input-section .quick-actions { display: flex; gap: 6px; margin-top: 8px; flex-wrap: wrap; }
 .input-section .quick-actions .qa-btn {
@@ -522,6 +548,11 @@ body {
   <div class="novel-count" id="novelCount"></div>
   <div id="novelList"></div>
   <button class="btn btn-primary" onclick="showNewNovelModal()" style="margin-top:10px;">+ 新建小说</button>
+  <div style="display:flex;gap:8px;margin-top:8px;">
+    <button class="btn btn-secondary btn-sm" onclick="exportAllData()" style="flex:1;">💾 导出备份</button>
+    <button class="btn btn-secondary btn-sm" onclick="showImportPanel()" style="flex:1;">📂 导入备份</button>
+  </div>
+  <input type="file" id="importInput" accept=".json" style="display:none" onchange="importAllData(event)">
 </div>
 
 <!-- ===== 章节列表页 ===== -->
@@ -540,19 +571,26 @@ body {
 <!-- ===== 写作页 ===== -->
 <div id="page-write" class="page writing-container">
   <div class="header" style="margin-bottom:8px;">
-    <button class="back" onclick="goChapters()">←</button>
+    <button class="back" onclick="if(isWriting||currentAbortController){showConfirm('正在写作中，确定离开？已写内容已自动保存。',function(){if(currentAbortController){currentAbortController.abort();currentAbortController=null;}isWriting=false;goChapters();})}else{goChapters()}">←</button>
     <span class="write-title" id="writeTitle" style="font-size:16px;font-weight:600;flex:1;"></span>
     <div class="model-switch" id="writeModelSwitch">
       <button data-model="flash" class="active">Flash</button>
       <button data-model="pro">Pro</button>
     </div>
     <button class="icon-btn" onclick="showBible()" title="故事设定">📖</button>
+    <button class="icon-btn" id="editToggleBtn" onclick="toggleEditChapter()" title="编辑章节" style="font-size:14px;">✎</button>
     <button class="icon-btn" onclick="toggleFullscreen()" title="全屏">⛶</button>
   </div>
   <div class="wordcount-bar" id="wordcountBar">
     <span id="wcLabel">0 字</span>
     <div class="bar-track"><div class="bar-fill" id="wcFill" style="width:0%"></div></div>
     <span id="wcModel" style="color:var(--text2);">flash</span>
+    <span id="wcChapterPos" style="font-size:11px;color:var(--text3);margin-left:4px;"></span>
+    <span id="wcTempDisplay" style="display:flex;align-items:center;gap:4px;margin-left:8px;font-size:11px;color:var(--accent3);">
+      <button class="temp-adjust" onclick="adjustTemp(-0.1)" title="降低创造性" style="background:none;border:1px solid var(--border);color:var(--accent3);width:28px;height:28px;border-radius:50%;font-size:16px;cursor:pointer;display:flex;align-items:center;justify-content:center;padding:0;line-height:1;">−</button>
+      <span id="wcTempValue" style="cursor:pointer;min-width:30px;text-align:center;font-weight:700;font-size:13px;" onclick="showSettings()">0.7</span>
+      <button class="temp-adjust" onclick="adjustTemp(0.1)" title="提高创造性" style="background:none;border:1px solid var(--border);color:var(--accent3);width:28px;height:28px;border-radius:50%;font-size:16px;cursor:pointer;display:flex;align-items:center;justify-content:center;padding:0;line-height:1;">+</button>
+    </span>
     <span id="wcTokens" style="margin-left:auto;font-size:11px;color:var(--text3);"></span>
   </div>
   <div class="paper" id="paperArea">
@@ -564,6 +602,7 @@ body {
   <div class="input-section">
     <div class="quick-actions" id="quickActions">
       <button class="qa-btn" onclick="autoWrite()" style="border-color:var(--accent);color:var(--accent);font-weight:600;">📝 按大纲续写</button>
+      <button class="qa-btn" onclick="showChapterPicker()" style="border-color:var(--accent2);color:var(--accent2);font-weight:600;">📖 指定章节</button>
       <button class="qa-btn" onclick="setQuickAction('续写')">续写</button>
       <button class="qa-btn" onclick="setQuickAction('描写场景')">描写场景</button>
       <button class="qa-btn" onclick="setQuickAction('人物对话')">人物对话</button>
@@ -572,6 +611,7 @@ body {
     <div class="input-row">
       <textarea id="userInput" rows="2" id="userInput" rows="2" placeholder="输入想法…" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendMessage();}"></textarea>
       <button class="send-btn" id="sendBtn" onclick="sendMessage()">➤</button>
+      <button class="stop-btn" id="stopBtn" onclick="stopWriting()" style="display:none;">⏹</button>
     </div>
     <div class="input-hint">Enter 发送 · Shift+Enter 换行</div>
   </div>
@@ -605,38 +645,90 @@ body {
 
 <!-- ===== 📖 故事设定弹窗（已迁移至下方，此处删重复） ===== -->
 
-<!-- ===== 设置弹窗 ===== -->
+<!-- ===== 设置弹窗（分组折叠） ===== -->
 <div class="modal-overlay" id="settingsModal">
   <div class="modal">
     <h2>⚙ 设置</h2>
-    <label>🔑 DeepSeek API Key</label>
-    <div style="position:relative;margin-bottom:12px;">
-      <input type="password" id="settingsApiKey" placeholder="sk-..." style="padding-right:60px;">
-      <button class="btn btn-sm btn-secondary" onclick="toggleApiKeyVisibility()" style="position:absolute;right:4px;top:4px;padding:4px 10px;font-size:12px;">显示</button>
-    </div>
-    <label>默认写作模型</label>
-    <select id="settingsModel">
-      <option value="flash">Flash（快速省钱）</option>
-      <option value="pro">Pro（细腻模式）</option>
-    </select>
-    <label>🎯 每章目标字数</label>
-    <input type="number" id="settingsWordTarget" value="2000" min="500" max="10000" step="500">
-    <label style="margin-top:4px;">🔧 底层提示词（系统 Prompt）</label>
-    <div class="prompt-editor">
-      <div class="prompt-info">发送给 AI 的系统指令。可用变量：</div>
-      <div class="prompt-vars">
-        <span class="var-tag">{style}</span>
-        <span class="var-tag">{model_style}</span>
-        <span class="var-tag">{bible}</span>
-        <span class="var-tag">{prev_chapters}</span>
-        <span class="var-tag">{context}</span>
+    
+    <div class="setting-group">
+      <div class="group-header open" onclick="toggleGroup(this)">
+        <span class="toggle-icon">▶</span> 🔑 基本设置
       </div>
-      <textarea id="promptEditor" spellcheck="false"></textarea>
+      <div class="group-body open">
+        <label>DeepSeek API Key</label>
+        <div style="position:relative;margin-bottom:12px;">
+          <input type="password" id="settingsApiKey" placeholder="sk-..." style="padding-right:60px;">
+          <button class="btn btn-sm btn-secondary" onclick="toggleApiKeyVisibility()" style="position:absolute;right:4px;top:4px;padding:4px 10px;font-size:12px;">显示</button>
+        </div>
+        <label>默认写作模型</label>
+        <select id="settingsModel">
+          <option value="flash">⚡ Flash（快速省钱）</option>
+          <option value="pro">🌟 Pro（细腻模式）</option>
+        </select>
+      </div>
     </div>
-    <div style="display:flex;gap:10px;margin-bottom:14px;">
-      <button class="btn btn-sm btn-secondary" onclick="resetDefaultPrompt()" style="flex:1;">恢复默认</button>
-      <button class="btn btn-sm btn-secondary" onclick="testPrompt()" style="flex:1;">预览效果</button>
+    
+    <div class="setting-group">
+      <div class="group-header open" onclick="toggleGroup(this)">
+        <span class="toggle-icon">▶</span> ✍ 写作设置
+      </div>
+      <div class="group-body open">
+        <label>🎯 每章目标字数</label>
+        <input type="number" id="settingsWordTarget" value="2000" min="500" max="10000" step="500">
+        <label>🌡️ AI 创造性（Temperature）</label>
+        <div style="display:flex;align-items:center;gap:12px;margin-bottom:14px;">
+          <input type="range" id="settingsTemperature" min="0.1" max="1.3" step="0.1" value="0.7" style="flex:1;" oninput="document.getElementById('settingsTempValue').textContent=this.value">
+          <span id="settingsTempValue" style="font-size:14px;font-weight:600;min-width:36px;text-align:center;color:var(--accent);">0.7</span>
+        </div>
+      </div>
     </div>
+    
+    <div class="setting-group">
+      <div class="group-header open" onclick="toggleGroup(this)">
+        <span class="toggle-icon">▶</span> 🎨 外观设置
+      </div>
+      <div class="group-body open">
+        <label>AI 生成文字颜色</label>
+        <div style="display:flex;align-items:center;gap:12px;margin-bottom:14px;">
+          <input type="color" id="settingsAiColor" value="#f0a840" style="width:44px;height:36px;border:1px solid var(--border);border-radius:6px;background:transparent;cursor:pointer;">
+          <span style="font-size:13px;color:var(--text2);">选 AI 生成内容的显示颜色</span>
+        </div>
+        <label>📝 已写文字颜色</label>
+        <div style="display:flex;align-items:center;gap:12px;margin-bottom:14px;">
+          <input type="color" id="settingsContentColor" value="#e4e9f2" style="width:44px;height:36px;border:1px solid var(--border);border-radius:6px;background:transparent;cursor:pointer;">
+          <span style="font-size:13px;color:var(--text2);">正文内容的显示颜色</span>
+        </div>
+        <label>📏 正文字号</label>
+        <div style="display:flex;align-items:center;gap:12px;margin-bottom:14px;">
+          <input type="range" id="settingsFontSize" min="13" max="22" step="1" value="15" style="flex:1;" oninput="document.getElementById('settingsFontSizeVal').textContent=this.value+'px'">
+          <span id="settingsFontSizeVal" style="font-size:14px;font-weight:600;min-width:40px;text-align:center;color:var(--accent);">15px</span>
+        </div>
+      </div>
+    </div>
+    
+    <div class="setting-group">
+      <div class="group-header" onclick="toggleGroup(this)">
+        <span class="toggle-icon">▶</span> 🔧 高级设置（系统 Prompt）
+      </div>
+      <div class="group-body">
+        <div class="prompt-editor">
+          <div class="prompt-info">发送给 AI 的系统指令。可用变量：</div>
+          <div class="prompt-vars">
+            <span class="var-tag">{style}</span>
+            <span class="var-tag">{model_style}</span>
+            <span class="var-tag">{bible}</span>
+            <span class="var-tag">{prev_chapters}</span>
+            <span class="var-tag">{context}</span>
+          </div>
+          <textarea id="promptEditor" spellcheck="false"></textarea>
+        </div>
+        <div style="display:flex;gap:10px;margin-bottom:14px;">
+          <button class="btn btn-sm btn-secondary" onclick="resetDefaultPrompt()" style="flex:1;">恢复默认</button>
+          <button class="btn btn-sm btn-secondary" onclick="testPrompt()" style="flex:1;">预览效果</button>
+        </div>
+      </div>
+    </div>
+    
     <div class="btn-group">
       <button class="btn btn-secondary" onclick="closeModal('settingsModal')">取消</button>
       <button class="btn btn-primary" onclick="saveSettings();testApi()" style="background:var(--accent2);">保存并测试</button>
@@ -659,14 +751,77 @@ body {
     <textarea id="bibleCharacters" rows="5" placeholder="角色名：性格、外貌、背景、目标&#10;如：&#10;· 沈青娥：18岁，江南织造之女，聪慧坚韧，为救父亲上京&#10;· 赵景川：25岁，锦衣卫北镇抚司千户，冷面热心，身世成谜" style="min-height:90px;"></textarea>
     
     <label>章节大纲</label>
-    <textarea id="bibleOutline" rows="6" placeholder="每章大致内容：&#10;第1章：XXX&#10;第2章：XXX&#10;..." style="min-height:100px;"></textarea>
-
+    <textarea id="bibleOutline" rows="6" placeholder="每章大致内容：&#10;第1章：XXX&#10;第2章：XXX&#10;..." style="min-height:100px;max-height:300px;overflow-y:auto;" oninput="updateOutlinePreview()"></textarea>
+    <div id="outlinePreview" style="font-size:12px;color:var(--text2);margin:2px 0 12px 0;line-height:1.5;display:none;"></div>
+    
     <label>其他设定</label>
     <textarea id="bibleOther" rows="3" placeholder="世界观、特殊规则、伏笔安排等" style="min-height:60px;"></textarea>
     
     <div class="btn-group" style="margin-top:8px;">
       <button class="btn btn-secondary" onclick="closeModal('bibleModal')">取消</button>
       <button class="btn btn-primary" onclick="saveBible()">保存设定</button>
+    </div>
+  </div>
+</div>
+
+<!-- ===== 导出备份弹窗（适配安卓） ===== -->
+<div class="modal-overlay" id="backupModal">
+  <div class="modal" style="max-width:480px;">
+    <h2>💾 导出备份</h2>
+    <p id="backupInfo" style="font-size:13px;color:var(--text2);margin-bottom:12px;"></p>
+    <textarea id="backupData" readonly style="width:100%;min-height:120px;max-height:260px;font-size:11px;font-family:monospace;background:var(--bg2);border:1px solid var(--border);border-radius:var(--radius-sm);color:var(--text);padding:10px;resize:vertical;overflow-y:auto;"></textarea>
+    <div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap;">
+      <button class="btn btn-sm btn-secondary" onclick="copyBackup()" style="flex:1;">📋 复制</button>
+      <button class="btn btn-sm btn-secondary" onclick="downloadBackup()" style="flex:1;">💾 下载文件</button>
+    </div>
+    <div style="display:flex;gap:8px;margin-top:8px;">
+      <button class="btn btn-sm btn-secondary" onclick="closeModal('backupModal')" style="flex:1;">关闭</button>
+      <button class="btn btn-sm btn-primary" onclick="showImportPanel()" style="flex:1;background:linear-gradient(135deg,var(--accent3),var(--danger));">📂 导入备份</button>
+    </div>
+  </div>
+</div>
+
+<!-- ===== 导入备份弹窗（适配安卓，支持粘贴） ===== -->
+<div class="modal-overlay" id="importModal">
+  <div class="modal" style="max-width:480px;">
+    <h2>📂 导入备份</h2>
+    <p style="font-size:13px;color:var(--text2);margin-bottom:12px;line-height:1.6;">
+      将备份内容粘贴到下方，或将 JSON 文件作为文本文件打开并复制内容。
+    </p>
+    <textarea id="importData" placeholder="在此粘贴备份的 JSON 内容……" style="width:100%;min-height:120px;max-height:260px;font-size:11px;font-family:monospace;background:var(--bg2);border:1px solid var(--border);border-radius:var(--radius-sm);color:var(--text);padding:10px;resize:vertical;overflow-y:auto;"></textarea>
+    <div class="btn-group" style="margin-top:10px;">
+      <button class="btn btn-secondary" onclick="closeModal('importModal')">取消</button>
+      <button class="btn btn-primary" onclick="doImport()" style="background:var(--danger);">⚠️ 确认导入</button>
+    </div>
+  </div>
+</div>
+
+<!-- ===== 指定章节生成弹窗 ===== -->
+<div class="modal-overlay" id="chapterPickerModal">
+  <div class="modal" style="max-width:380px;">
+    <h2>📖 按大纲生成指定章节</h2>
+    <p style="font-size:13px;color:var(--text2);margin-bottom:16px;line-height:1.6;">
+      根据你在「故事设定」中填写的章节大纲，生成指定章节的内容。
+    </p>
+    <label>要生成第几章？</label>
+    <input type="number" id="chapterPickerNum" min="1" max="99" value="1" style="font-size:20px;font-weight:700;text-align:center;">
+    <p style="font-size:12px;color:var(--text3);margin-bottom:16px;">如果中间有缺失的章节，会自动创建空白章节。</p>
+    <div class="btn-group">
+      <button class="btn btn-secondary" onclick="closeModal('chapterPickerModal')">取消</button>
+      <button class="btn btn-primary" onclick="generateSpecificChapter()" style="background:linear-gradient(135deg,var(--accent2),var(--accent));">开始生成</button>
+    </div>
+  </div>
+</div>
+
+<!-- ===== 重命名弹窗 ===== -->
+<div class="modal-overlay" id="renameModal" style="z-index:150;">
+  <div class="modal" style="max-width:360px;">
+    <h2>✏️ 重命名章节</h2>
+    <label>章节标题</label>
+    <input type="text" id="renameInput" placeholder="输入新标题（留空则清除）" onkeydown="if(event.key==='Enter'){event.preventDefault();doRename();}">
+    <div class="btn-group">
+      <button class="btn btn-secondary" onclick="closeModal('renameModal')">取消</button>
+      <button class="btn btn-primary" onclick="doRename()">确定</button>
     </div>
   </div>
 </div>
@@ -693,6 +848,10 @@ const MODELS = { flash: 'deepseek-chat', pro: 'deepseek-reasoner' };
 let chapterWordTarget = 2000;
 let totalTokensUsed = 0;
 let totalTokensCost = 0;
+let temperature = 0.7;
+let aiColor = '#f0a840';
+let contentColor = '#e4e9f2';
+let fontSize = 15;
 
 const DEFAULT_PROMPT = `你是一位专业的小说写作助手。正在写一部{style}风格的小说。
 
@@ -702,7 +861,7 @@ const DEFAULT_PROMPT = `你是一位专业的小说写作助手。正在写一�
 {prev_chapters}
 
 写作要求：
-1. 每次生成长度不少于 ${chapterWordTarget} 字，可更多
+1. 【完整章节】你必须一次性写完本章全部内容，不得中途停止、截断或输出"未完待续"。字数目标 ${chapterWordTarget} 字以上。
 2. 用中文写作，语言符合{style}风格
 3. 严格按照故事设定和人物性格推进，保持全文连贯
 4. 注意呼应前文，不要出现前后矛盾
@@ -710,7 +869,9 @@ const DEFAULT_PROMPT = `你是一位专业的小说写作助手。正在写一�
 6. 段间空行
 7. 不写标题，只写正文
 8. 不输出解释，直接写小说
-9. 如果用户提供了【章节大纲】或【本章大纲要求】，必须严格按照大纲内容来写，每段都要对应大纲的具体条目，不得自行添加大纲中没有的情节、人物和事件
+9. 【严格遵循大纲】如果用户提供了【章节大纲】或【本章大纲要求】，你必须严格执行。只写大纲指定的内容，不得新增任何大纲中没有的情节、人物、对话、场景或事件。如果大纲说「主角进城」，你就只写主角进城，不能自己添加「路上遇到强盗」等大纲没有的内容。
+10. 写作时不要偏离章节大纲，不要提前写后面章节的内容。
+11. 不要加入任何自己的想法、创意或扩展，完全按照用户给的设定和大纲来写。
 
 {context}`;
 
@@ -720,8 +881,53 @@ let novels = [];
 let currentNovelId = null;
 let currentChapterId = null;
 let isWriting = false;
+let isEditingChapter = false;
 let customPrompt = null;
-;
+let currentAbortController = null;
+
+// ===== 工具函数 =====
+function countChinese(s) {
+  return (s || '').replace(/[^\u4e00-\u9fff]/g, '').length;
+}
+
+// ===== 中文数字转换 =====
+function toChineseNum(n) {
+  const d = ['零','一','二','三','四','五','六','七','八','九'];
+  if (n <= 10) return n === 10 ? '十' : d[n];
+  const t = Math.floor(n / 10), o = n % 10;
+  return (t === 1 ? '' : d[t]) + '十' + (o === 0 ? '' : d[o]);
+}
+function matchChapter(line, num) {
+  const t = line.trim();
+  if (!t) return false;
+  if (t.indexOf('第' + num + '章') >= 0 || t.indexOf(num + '.') === 0 || t.indexOf(num + '、') === 0) return true;
+  const cn = toChineseNum(num);
+  if (cn && t.indexOf('第' + cn + '章') >= 0) return true;
+  return false;
+}
+// 按章节标题分割：从"第一章"到"第二章"之间的全部内容都是第一章的
+function splitOutline(text) {
+  const lines = text.split('\n');
+  const chapters = [];
+  let current = [];
+  let hasHeader = false;
+  for (const line of lines) {
+    const t = line.trim();
+    if (!t) { if (hasHeader) current.push(''); continue; }
+    // 检测章节标题（跟 matchChapter 一致，行内任意位置匹配）
+    const isHeader = /第[\d０１２３４５６７８９一二三四五六七八九十百千]+章/.test(t) || /^\d+[.、]/.test(t);
+    if (isHeader) {
+      if (current.length > 0 || hasHeader) chapters.push(current.join('\n').trim());
+      current = [t];
+      hasHeader = true;
+    } else if (hasHeader) {
+      current.push(t);
+    }
+  }
+  if (current.length > 0) chapters.push(current.join('\n').trim());
+  // 没识别到任何章节标题时回退到逐行
+  return chapters.length > 0 ? chapters : text.split('\n').filter(l => l.trim());
+}
 
 // ===== 数据层 =====
 function loadData() {
@@ -733,6 +939,10 @@ function loadData() {
       currentModel = p.currentModel || 'flash';
       customPrompt = p.customPrompt || null;
       chapterWordTarget = p.chapterWordTarget || 2000;
+      temperature = p.temperature !== undefined ? p.temperature : 0.7;
+      aiColor = p.aiColor || '#f0a840';
+      contentColor = p.contentColor || '#e4e9f2';
+      fontSize = p.fontSize || 15;
       totalTokensUsed = p.totalTokensUsed || 0;
       totalTokensCost = p.totalTokensCost || 0;
       if (document.getElementById('settingsModel')) {
@@ -742,9 +952,11 @@ function loadData() {
     }
   } catch(e) { novels = []; }
   updateModelUI();
+  const pa = document.getElementById('paperArea');
+  if (pa) pa.style.fontSize = fontSize + 'px';
 }
 function saveData() {
-  localStorage.setItem('novelWriterData', JSON.stringify({ novels, currentModel, customPrompt, chapterWordTarget, totalTokensUsed, totalTokensCost }));
+  localStorage.setItem('novelWriterData', JSON.stringify({ novels, currentModel, customPrompt, chapterWordTarget, temperature, aiColor, contentColor, fontSize, totalTokensUsed, totalTokensCost }));
   clearTimeout(window._saveToastTimer);
   window._saveToastTimer = setTimeout(() => {
     const el = document.getElementById('toast');
@@ -800,6 +1012,13 @@ function showConfirm(text, cb) {
 }
 function closeConfirm() { document.getElementById('confirmDialog').classList.remove('active'); confirmCallback = null; }
 
+// ===== 设置分组折叠 =====
+function toggleGroup(header) {
+  header.classList.toggle('open');
+  const body = header.nextElementSibling;
+  if (body) body.classList.toggle('open');
+}
+
 // ===== 风格标签 =====
 document.getElementById('styleTags')?.addEventListener('click', e => {
   const btn = e.target.closest('.tag-btn');
@@ -817,16 +1036,18 @@ function renderHome() {
     count.textContent = '';
     return;
   }
-  const totalAll = novels.reduce((s, n) => s + n.chapters.reduce((s2, c) => s2 + (c.content || '').length, 0), 0);
+  const totalAll = novels.reduce((s, n) => s + n.chapters.reduce((s2, c) => s2 + countChinese(c.content), 0), 0);
   const today = new Date().toDateString();
   const todayWords = novels.reduce((s, n) => s + n.chapters.reduce((s2, c) => {
-    return s2 + ((c.createdAt && new Date(c.createdAt).toDateString() === today) ? (c.content || '').length : 0);
+    return s2 + ((c.createdAt && new Date(c.createdAt).toDateString() === today) ? countChinese(c.content) : 0);
   }, 0), 0);
   const allDays = new Set();
   novels.forEach(n => n.chapters.forEach(c => { if (c.createdAt) allDays.add(new Date(c.createdAt).toDateString()); }));
-  count.innerHTML = `共 ${novels.length} 篇小说 · 总计 ${totalAll.toLocaleString()} 字${todayWords > 0 ? ' · 今日 +' + todayWords.toLocaleString() + ' 字' : ''}${allDays.size > 0 ? ' · 写作 ' + allDays.size + ' 天' : ''}`;
+  const totalTokensAll = novels.reduce((s, n) => s + n.chapters.reduce((s2, c) => s2 + (c.tokens || 0), 0), 0);
+  const totalCostAll = novels.reduce((s, n) => s + n.chapters.reduce((s2, c) => s2 + (c.cost || 0), 0), 0);
+  count.innerHTML = `共 ${novels.length} 篇小说 · 总计 ${totalAll.toLocaleString()} 字${todayWords > 0 ? ' · 今日 +' + todayWords.toLocaleString() + ' 字' : ''}${allDays.size > 0 ? ' · 写作 ' + allDays.size + ' 天' : ''}${totalTokensAll > 0 ? ' · ⚡总 ' + totalTokensAll.toLocaleString() : ''}${totalCostAll > 0 ? ' · ¥' + totalCostAll.toFixed(4) : ''}`;
   el.innerHTML = novels.map((n, i) => {
-    const total = n.chapters.reduce((s, c) => s + (c.content || '').length, 0);
+    const total = n.chapters.reduce((s, c) => s + countChinese(c.content), 0);
     const hasBible = n.bible && (n.bible.synopsis || n.bible.characters);
     const novelTokens = n.chapters.reduce((s, c) => s + (c.tokens || 0), 0);
     return `<div class="card" onclick="openNovel(${i})">
@@ -890,7 +1111,20 @@ function showBible() {
   document.getElementById('bibleOutline').value = n.bible.outline || '';
   document.getElementById('bibleOther').value = n.bible.other || '';
   showModal('bibleModal');
+  setTimeout(updateOutlinePreview, 50);
 }
+// ===== 大纲匹配预览 =====
+function updateOutlinePreview() {
+  const text = document.getElementById('bibleOutline')?.value || '';
+  const el = document.getElementById('outlinePreview');
+  if (!el) return;
+  if (!text.trim()) { el.innerHTML = ''; el.style.display = 'none'; return; }
+  el.style.display = 'block';
+  const chs = splitOutline(text);
+  el.innerHTML = '✅ 识别到 <strong>' + chs.length + '</strong> 章' +
+    (chs.length > 0 ? ' · 从"第X章"标题分割' : ' · 未识别到章节标题');
+}
+
 function saveBible() {
   const n = getNovel();
   if (!n) return;
@@ -917,8 +1151,9 @@ function renderChapters() {
     return;
   }
   el.innerHTML = n.chapters.map((c, i) => {
-    const len = (c.content || '').length;
-    const pct = Math.min(100, Math.round(len / chapterWordTarget * 100));
+    const len = countChinese(c.content);
+    const totalLen = (c.content || '').length;
+    const pct = Math.min(100, Math.round(totalLen / chapterWordTarget * 100));
     return `<div class="card chapter-item">
       <div class="ch-num">${i+1}</div>
       <div class="info" onclick="openChapter(${i})">
@@ -927,6 +1162,8 @@ function renderChapters() {
         <div class="progress-bar"><div class="fill" style="width:${pct}%"></div></div>
       </div>
       <div class="actions">
+        <button class="btn btn-sm btn-secondary" onclick="event.stopPropagation();moveChapter(${i},-1)" ${i === 0 ? 'disabled style="opacity:0.3;"' : ''}>↑</button>
+        <button class="btn btn-sm btn-secondary" onclick="event.stopPropagation();moveChapter(${i},1)" ${i === n.chapters.length - 1 ? 'disabled style="opacity:0.3;"' : ''}>↓</button>
         <button class="btn btn-sm btn-secondary" onclick="event.stopPropagation();renameChapter(${i})">✏️</button>
         <button class="btn btn-sm btn-danger" onclick="event.stopPropagation();deleteChapter(${i})">✕</button>
       </div>
@@ -936,12 +1173,35 @@ function renderChapters() {
 function renameChapter(idx) {
   const n = getNovel();
   const c = n.chapters[idx];
-  const newTitle = prompt('章节标题：', c.title || '');
-  if (newTitle !== null) {
-    c.title = newTitle;
-    saveData();
-    renderChapters();
-  }
+  const inp = document.getElementById('renameInput');
+  if (!inp) return;
+  inp.value = c.title || '';
+  inp.dataset.idx = idx;
+  showModal('renameModal');
+  setTimeout(() => inp.focus(), 100);
+}
+function doRename() {
+  const inp = document.getElementById('renameInput');
+  const idx = parseInt(inp.dataset.idx);
+  const n = getNovel();
+  if (!n || !n.chapters[idx]) return;
+  const val = inp.value.trim();
+  n.chapters[idx].title = val;
+  saveData();
+  closeModal('renameModal');
+  renderChapters();
+  showToast(val ? '✅ 已重命名' : '已清除标题');
+}
+function moveChapter(idx, dir) {
+  const n = getNovel();
+  const target = idx + dir;
+  if (target < 0 || target >= n.chapters.length) return;
+  const temp = n.chapters[idx];
+  n.chapters[idx] = n.chapters[target];
+  n.chapters[target] = temp;
+  saveData();
+  renderChapters();
+  showToast('已移动');
 }
 function deleteChapter(idx) {
   const n = getNovel();
@@ -983,6 +1243,8 @@ function renderWrite() {
   if (!n || currentChapterId === null || !n.chapters[currentChapterId]) { goChapters(); return; }
   const c = n.chapters[currentChapterId];
   document.getElementById('writeTitle').textContent = n.title + ' · 第' + (currentChapterId+1) + '章' + (c.title ? '：' + c.title : '');
+  const pa = document.getElementById('paperArea');
+  if (pa) pa.style.fontSize = fontSize + 'px';
   updateWordCountBar();
   renderPaper();
 }
@@ -991,9 +1253,13 @@ function updateWordCountBar() {
   if (!n || currentChapterId === null) return;
   const c = n.chapters[currentChapterId];
   if (!c) return;
-  const len = (c.content || '').length;
+  const len = countChinese(c.content);
   document.getElementById('wcLabel').textContent = len.toLocaleString() + ' 字';
   document.getElementById('wcModel').textContent = c.model || currentModel;
+  const posEl = document.getElementById('wcChapterPos');
+  if (posEl) posEl.textContent = (currentChapterId !== null ? '第' + (currentChapterId+1) + '章 / 共' + n.chapters.length + '章' : '');
+  const tempEl = document.getElementById('wcTempValue');
+  if (tempEl) tempEl.textContent = temperature.toFixed(1);
   const pct = Math.min(100, Math.round(len / chapterWordTarget * 100));
   document.getElementById('wcFill').style.width = pct + '%';
   const te = document.getElementById('wcTokens');
@@ -1003,22 +1269,74 @@ function updateWordCountBar() {
     const ch = n2 && n2.chapters[currentChapterId];
     const chCost = ch ? (ch.cost || 0) : 0;
     const bookCost = n2 ? n2.chapters.reduce((s, c) => s + (c.cost || 0), 0) : 0;
-    te.textContent = '⚡总' + totalTokensUsed.toLocaleString() + ' · 本章' + (ch ? (ch.tokens || 0).toLocaleString() : '0') + ' · 本书' + bookTokens.toLocaleString() + ' | ¥' + totalTokensCost.toFixed(4) + ' / 本章¥' + chCost.toFixed(4) + ' / 本书¥' + bookCost.toFixed(4);
+    te.textContent = '⚡总' + totalTokensUsed.toLocaleString() + ' · 本章' + (ch ? (ch.tokens || 0).toLocaleString() : '0') + ' · 本书' + bookTokens.toLocaleString() + ' | ¥' + totalTokensCost.toFixed(4) + ' / 章¥' + chCost.toFixed(4) + ' / 书¥' + bookCost.toFixed(4);
   }
 }
 function renderPaper() {
+  try {
   const n = getNovel();
+  if (!n) return;
   const c = n.chapters[currentChapterId];
+  if (!c) { showToast('找不到章节数据'); return; }
   const el = document.getElementById('chapterContent');
+  if (isEditingChapter && c.content) {
+    el.innerHTML = `<div style="margin-bottom:8px;font-size:12px;color:var(--accent3);">✎ 编辑模式 · 修改后点「保存」</div>
+      <textarea id="editTextarea" style="width:100%;min-height:300px;background:var(--bg2);border:1px solid var(--border);border-radius:var(--radius-sm);color:var(--text);font-size:15px;line-height:1.9;padding:16px;font-family:inherit;resize:vertical;">${esc(c.content)}</textarea>
+      <div style="display:flex;gap:8px;margin-top:8px;">
+        <button class="btn btn-sm btn-secondary" onclick="isEditingChapter=false;renderPaper();" style="flex:1;">取消</button>
+        <button class="btn btn-sm btn-primary" onclick="saveEditChapter()" style="flex:1;">💾 保存</button>
+      </div>`;
+    setTimeout(() => document.getElementById('editTextarea')?.focus(), 100);
+    return;
+  }
   if (!c.content) {
     el.innerHTML = '<div class="empty-hint"><span class="big">✍</span>还没有内容<br>在下方输入想法，开始写作吧</div>';
     return;
   }
   const badge = `<span class="model-badge ${c.model||'flash'}">${c.model||'flash'}</span>`;
-  const paragraphs = (c.content || '').split(/\n{2,}/).filter(Boolean);
-  const html = paragraphs.map(p => '<p>' + esc(p.replace(/\n/g, ' ').trim()) + '</p>').join('');
+  const ps = (txt) => '<p style="color:' + contentColor + '">' + esc(txt.replace(/\n/g, ' ').trim()) + '</p>';
+  let html = '';
+  if (c._lastAiReply) {
+    const oldContent = c.content.slice(0, c.content.lastIndexOf(c._lastAiReply));
+    const aiContent = c._lastAiReply;
+    const oldParagraphs = oldContent.split(/\n{2,}/).filter(Boolean);
+    if (oldParagraphs.length > 0) html += oldParagraphs.map(p => ps(p)).join('');
+    html += `<div style="border-left:3px solid ${aiColor};padding-left:14px;margin:12px 0;color:${aiColor};">`;
+    html += '<div style="font-size:11px;opacity:0.6;margin-bottom:6px;">✦ AI 生成</div>';
+    html += aiContent.split(/\n{2,}/).filter(Boolean).map(p => ps(p)).join('');
+    html += '</div>';
+    delete c._lastAiReply;
+  } else {
+    const paragraphs = (c.content || '').split(/\n{2,}/).filter(Boolean);
+    html = paragraphs.map(p => ps(p)).join('');
+  }
   el.innerHTML = badge + html;
   document.getElementById('paperArea').scrollTop = document.getElementById('paperArea').scrollHeight;
+  } catch(err) { console.error('renderPaper error:', err); showToast('渲染出错: ' + err.message); }
+}
+function toggleEditChapter() {
+  const n = getNovel();
+  if (!n || currentChapterId === null || !n.chapters[currentChapterId]) { showToast('没有内容可编辑'); return; }
+  if (!n.chapters[currentChapterId].content) { showToast('本章还没有内容'); return; }
+  isEditingChapter = !isEditingChapter;
+  renderPaper();
+  const btn = document.getElementById('editToggleBtn');
+  if (btn) btn.textContent = isEditingChapter ? '💾' : '✎';
+}
+function saveEditChapter() {
+  const ta = document.getElementById('editTextarea');
+  if (!ta) return;
+  const n = getNovel();
+  if (!n || currentChapterId === null || !n.chapters[currentChapterId]) return;
+  n.chapters[currentChapterId].content = ta.value;
+  n.chapters[currentChapterId].summary = ta.value.replace(/\n/g, ' ').slice(0, 100) + (ta.value.length > 100 ? '…' : '');
+  isEditingChapter = false;
+  saveData();
+  renderPaper();
+  updateWordCountBar();
+  const btn = document.getElementById('editToggleBtn');
+  if (btn) btn.textContent = '✎';
+  showToast('✅ 已保存修改');
 }
 function goChapters() {
   currentChapterId = null;
@@ -1028,6 +1346,66 @@ function goChapters() {
 function settingsForChapter() {
   showToast('可在首页 ⚙ 设置中修改提示词');
 }
+
+// ===== 温度快速调节 =====
+function adjustTemp(delta) {
+  temperature = Math.round(Math.min(1.3, Math.max(0.1, temperature + delta)) * 10) / 10;
+  const el = document.getElementById('wcTempValue');
+  if (el) el.textContent = temperature.toFixed(1);
+  saveData();
+  showToast('🌡️ Temperature: ' + temperature.toFixed(1));
+}
+
+// ===== 停止生成 =====
+function stopWriting() {
+  if (currentAbortController) {
+    currentAbortController.abort();
+    showToast('⏹ 正在停止…');
+  }
+}
+
+// ===== 指定章节生成弹窗 =====
+function showChapterPicker() {
+  const n = getNovel();
+  if (!n) { showToast('请先选择小说'); return; }
+  if (!n.bible || !n.bible.outline || !n.bible.outline.trim()) {
+    showToast('❌ 请先在「📖 故事设定」中填写章节大纲');
+    return;
+  }
+  document.getElementById('chapterPickerNum').value = currentChapterId !== null ? currentChapterId + 1 : n.chapters.length + 1;
+  document.getElementById('chapterPickerNum').min = 1;
+  document.getElementById('chapterPickerNum').max = Math.max(99, n.bible.outline.split('\n').length);
+  showModal('chapterPickerModal');
+}
+
+// ===== 生成指定章节 =====
+async function generateSpecificChapter() {
+  const n = getNovel();
+  if (!n) { showToast('请先选择小说'); return; }
+  const targetNum = parseInt(document.getElementById('chapterPickerNum').value);
+  if (!targetNum || targetNum < 1) { showToast('请输入有效的章节号'); return; }
+  closeModal('chapterPickerModal');
+  
+  // 确保前面的章节都存在（创建空白占位）
+  const neededCount = targetNum; // 需要的章节总数（1-based）
+  while (n.chapters.length < neededCount) {
+    n.chapters.push({
+      id: Date.now().toString(36) + '_' + n.chapters.length,
+      title: '', content: '', summary: '',
+      model: currentModel, createdAt: new Date().toISOString(), history: []
+    });
+  }
+  
+  // 跳转到目标章节
+  currentChapterId = targetNum - 1;
+  saveData();
+  switchPage('page-write');
+  renderWrite();
+  
+  // 自动调用按大纲续写
+  setTimeout(() => autoWrite(), 300);
+}
+
 function autoWrite() {
   const n = getNovel();
   if (!n) { showToast('请先选择小说'); return; }
@@ -1041,18 +1419,18 @@ function autoWrite() {
   const other = n.bible?.other?.trim();
   
   const chNum = (currentChapterId !== null ? currentChapterId : 0) + 1;
-  const cn = ['零','一','二','三','四','五','六','七','八','九','十','十一','十二','十三','十四','十五'];
   
   // 构建完整大纲，标记当前章节
   let outlineMarked = '';
   if (outline) {
-    const lines = outline.split('\n');
-    for (const line of lines) {
-      const t = line.trim();
-      if (!t) continue;
-      const cnn = cn[chNum] || '';
-      const isCurrent = t.indexOf('第' + cnn + '章') >= 0 || t.indexOf('第' + chNum + '章') >= 0 || t.indexOf(chNum + '.') === 0 || t.indexOf(chNum + '、') === 0;
-      outlineMarked += (isCurrent ? '>>>>> 当前章: ' : '       ') + t + '\n';
+    const chs = splitOutline(outline);
+    for (let i = 0; i < chs.length; i++) {
+      const isCurrent = (i + 1 === chNum);
+      const lines = chs[i].split('\n');
+      outlineMarked += (isCurrent ? '>>>>> 当前章: ' : '       ') + lines[0] + '\n';
+      for (let j = 1; j < lines.length; j++) {
+        outlineMarked += (isCurrent ? '         ' : '           ') + lines[j] + '\n';
+      }
     }
   }
   
@@ -1072,9 +1450,11 @@ function autoWrite() {
 // isFullMessage=true 时 userText 已经是完整的用户消息，不包装
 async function doWrite(userText, isFullMessage) {
   if (isWriting) return;
+  currentAbortController = new AbortController();
   try {
     isWriting = true;
     document.getElementById('sendBtn').disabled = true;
+    document.getElementById('stopBtn').style.display = 'flex';
     const n = getNovel();
     if (!n || !n.chapters) throw new Error('找不到小说数据');
     const c = n.chapters[currentChapterId];
@@ -1082,7 +1462,7 @@ async function doWrite(userText, isFullMessage) {
     
     const contentEl = document.getElementById('chapterContent');
     if (contentEl) {
-      contentEl.innerHTML = esc(c.content || '') + '<div class="loading-overlay"><div class="spinner"></div><span>✍ 写作中…</span></div>';
+      contentEl.innerHTML = esc(c.content || '') + '<div class="loading-overlay"><div class="spinner"></div><span>✍ 写作中…</span><div id="genProgress" style="margin-top:6px;font-size:12px;color:var(--text3);">0 / ' + chapterWordTarget.toLocaleString() + ' 字</div><div style="margin-top:4px;height:3px;background:var(--bg2);border-radius:2px;overflow:hidden;width:180px;margin-left:auto;margin-right:auto;"><div id="genProgressFill" style="height:100%;width:0%;background:linear-gradient(90deg,var(--accent2),var(--accent));border-radius:2px;transition:width .3s;"></div></div></div>';
     }
     
     const model = currentModel;
@@ -1106,7 +1486,8 @@ async function doWrite(userText, isFullMessage) {
     const res = await fetch(API_URL, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${API_KEY}` },
-      body: JSON.stringify({ model: MODELS[model], messages, max_tokens: 4000, temperature: model === 'flash' ? 0.8 : 0.9, stream: true })
+      body: JSON.stringify({ model: MODELS[model], messages, max_tokens: 8192, temperature: temperature, stream: true }),
+      signal: currentAbortController.signal
     });
     if (!res.ok) throw new Error(`API ${res.status}`);
     
@@ -1115,58 +1496,72 @@ async function doWrite(userText, isFullMessage) {
     const decoder = new TextDecoder();
     let fullReply = '';
     let buffer = '';
+    let saveCounter = 0;
     
     // 显示loading占位
     if (contentEl) {
-      contentEl.innerHTML = esc(c.content || '') + '<div id="streamOutput" style="white-space:pre-wrap;line-height:1.9;"></div>';
+      contentEl.innerHTML = esc(c.content || '') + '<div id="streamOutput" class="ai-cursor" style="white-space:pre-wrap;line-height:1.9;color:' + aiColor + ';border-left:3px solid ' + aiColor + ';padding-left:12px;margin-top:8px;"></div>';
+    }
+    
+    // 解析单行 SSE 数据
+    function processSseData(raw) {
+      if (!raw.startsWith('data: ')) return;
+      const data = raw.slice(6).trim();
+      if (data === '[DONE]') return;
+      try {
+        const parsed = JSON.parse(data);
+        const delta = parsed.choices?.[0]?.delta?.content || '';
+        if (delta) fullReply += delta;
+        if (parsed.usage) {
+          const u = parsed.usage;
+          const promptT = u.prompt_tokens || 0;
+          const completionT = u.completion_tokens || 0;
+          totalTokensUsed += u.total_tokens || 0;
+          window._lastStreamTokens = (window._lastStreamTokens || 0) + (u.total_tokens || 0);
+          const model = currentModel;
+          const costIn = (model === 'pro' ? 0.435 : 0.14) * promptT / 1000000;
+          const costOut = (model === 'pro' ? 0.87 : 0.28) * completionT / 1000000;
+          totalTokensCost += costIn + costOut;
+          window._lastStreamCost = (window._lastStreamCost || 0) + costIn + costOut;
+        }
+      } catch(e) { /* 跳过解析失败的行 */ }
     }
     
     while (true) {
       const { done, value } = await reader.read();
       if (done) break;
       buffer += decoder.decode(value, { stream: true });
-      // 解析 SSE 事件
       const lines = buffer.split('\n');
       buffer = lines.pop() || '';
-      for (const line of lines) {
-        if (!line.startsWith('data: ')) continue;
-        const data = line.slice(6).trim();
-        if (data === '[DONE]') continue;
-        try {
-          const parsed = JSON.parse(data);
-          const delta = parsed.choices?.[0]?.delta?.content || '';
-          if (delta) fullReply += delta;
-          if (parsed.usage) {
-            const u = parsed.usage;
-            const promptT = u.prompt_tokens || 0;
-            const completionT = u.completion_tokens || 0;
-            totalTokensUsed += u.total_tokens || 0;
-            window._lastStreamTokens = (window._lastStreamTokens || 0) + (u.total_tokens || 0);
-            // Track cost per model
-            const model = currentModel;
-            const costIn = (model === 'pro' ? 4.0 : 0.5) * promptT / 1000000;
-            const costOut = (model === 'pro' ? 16.0 : 2.0) * completionT / 1000000;
-            totalTokensCost += costIn + costOut;
-            window._lastStreamCost = (window._lastStreamCost || 0) + costIn + costOut;
-          }
-        } catch(e) { /* 跳过解析失败的行 */ }
+      for (const line of lines) processSseData(line);
+      // 每 15 个数据块自动保存一次
+      saveCounter++;
+      if (saveCounter % 15 === 0 && fullReply.length > 50) {
+        c.content = (existingContent || '') + '\n\n' + fullReply;
+        saveData();
       }
-      // 实时更新显示
+      // 实时更新显示 + 进度
       const streamEl = document.getElementById('streamOutput');
       if (streamEl) streamEl.textContent = fullReply;
+      const gp = document.getElementById('genProgress');
+      if (gp) gp.textContent = countChinese(fullReply).toLocaleString() + ' / ' + chapterWordTarget.toLocaleString() + ' 字';
+      const gf = document.getElementById('genProgressFill');
+      if (gf) gf.style.width = Math.min(100, Math.round(countChinese(fullReply) / chapterWordTarget * 100)) + '%';
     }
+    // 处理 buffer 中残余数据（可能包含 usage）
+    if (buffer.trim()) processSseData(buffer.trim());
     
     let reply = fullReply.trim();
     reply = reply.replace(/^第[一二三四五六七八九十百千]+章[：:。]?\s*\n?/, '').trim();
     // 保证段落之间有空行：把单个换行变成双换行（但保留已有的双换行）
     reply = reply.replace(/\n{3,}/g, '\n\n').replace(/([^\n])\n([^\n])/g, '$1\n\n$2');
     
-    if (existingContent) c.content += '\n\n' + reply;
-    else c.content = reply;
+    c.content = (existingContent ? existingContent + '\n\n' : '') + reply;
     c.summary = reply.replace(/\n/g, ' ').slice(0, 100) + (reply.length > 100 ? '…' : '');
     if (!c.history) c.history = [];
     c.history.push({ role: 'user', content: userText });
     c.history.push({ role: 'assistant', content: `（${reply.length}字）`, model });
+    c._lastAiReply = reply;
     c.tokens = (c.tokens || 0) + (window._lastStreamTokens || 0);
     c.cost = (c.cost || 0) + (window._lastStreamCost || 0);
     window._lastStreamTokens = 0;
@@ -1177,15 +1572,26 @@ async function doWrite(userText, isFullMessage) {
     updateWordCountBar();
     showToast(`✅ 完成 · ${reply.length.toLocaleString()} 字`);
   } catch (err) {
-    const el2 = document.getElementById('chapterContent');
-    if (el2) {
-      el2.innerHTML = `<div style="color:var(--danger);padding:20px;text-align:center;font-size:15px;">❌ 生成失败<br><br><span style="font-size:13px;color:var(--text2);">${esc(err.message || err)}</span></div>`;
+    if (err.name === 'AbortError') {
+      const el2 = document.getElementById('chapterContent');
+      if (el2 && c && c.content) {
+        el2.innerHTML = esc(c.content) + '<div style="color:var(--accent3);padding:16px 20px;text-align:center;font-size:14px;border-top:1px solid var(--border);margin-top:12px;">⏹ 已停止 · 已写内容已保存</div>';
+      }
+      showToast('⏹ 已停止生成');
+    } else {
+      const el2 = document.getElementById('chapterContent');
+      if (el2) {
+        el2.innerHTML = `<div style="color:var(--danger);padding:20px;text-align:center;font-size:15px;">❌ 生成失败<br><br><span style="font-size:13px;color:var(--text2);">${esc(err.message || err)}</span></div>`;
+      }
+      showToast('❌ ' + (err.message || '失败'));
     }
-    showToast('❌ ' + (err.message || '失败'));
   } finally {
     isWriting = false;
+    currentAbortController = null;
     const sb = document.getElementById('sendBtn');
     if (sb) sb.disabled = false;
+    const stopBtn = document.getElementById('stopBtn');
+    if (stopBtn) stopBtn.style.display = 'none';
   }
 }
 function setQuickAction(action) {
@@ -1217,7 +1623,7 @@ function buildPrevChaptersText() {
   const prev = chapters.slice(0, end);
   if (prev.length === 0) return '（无）';
   return prev.map((c, i) => {
-    const words = (c.content || '').length;
+    const words = countChinese(c.content);
     const sum = c.summary || `第${i+1}章（${words.toLocaleString()}字）`;
     return `第${i+1}章${c.title ? '：' + c.title : ''}: ${sum}`;
   }).join('\n');
@@ -1246,6 +1652,17 @@ function buildSystemPrompt() {
       context = `上一章结尾：\n\`\`\`\n${prevContent.slice(-500)}\n\`\`\`\n\n请从上一章结尾处接续，开始新的一章。`;
     }
   }
+  // 如果没拿到上下文（前面章节都是空白），从章节大纲中提取前面章节的梗概
+  if (!context && currentIdx > 0 && n && n.bible && n.bible.outline) {
+    const chs = splitOutline(n.bible.outline);
+    const prevSummaries = [];
+    for (let i = 0; i < currentIdx && i < chs.length; i++) {
+      prevSummaries.push(chs[i].replace(/\n/g, ' ').slice(0, 100));
+    }
+    if (prevSummaries.length > 0) {
+      context = '【前面章节的大纲概要】（这些章节尚未撰写，以下为大纲中的规划）：\n' + prevSummaries.join('\n') + '\n\n请根据以上规划续写当前章节。';
+    }
+  }
   
   const bible = buildBibleText();
   const prevChapters = buildPrevChaptersText();
@@ -1254,23 +1671,11 @@ function buildSystemPrompt() {
   const n2 = getNovel();
   const chIdx = currentChapterId !== null ? currentChapterId : -1;
   if (n2 && n2.bible && n2.bible.outline && chIdx >= 0) {
-    const cn3 = ['零','一','二','三','四','五','六','七','八','九','十','十一','十二','十三','十四','十五'];
     const chNum3 = chIdx + 1;
-    const cnn3 = cn3[chNum3] || '';
-    const lines3 = n2.bible.outline.split('\\n');
-    let currentChapterDesc = '';
-    for (const line of lines3) {
-      const t = line.trim();
-      if (t.indexOf('第' + cnn3 + '章') >= 0 || t.indexOf('第' + chNum3 + '章') >= 0 || t.indexOf(chNum3 + '.') === 0 || t.indexOf(chNum3 + '、') === 0) {
-        currentChapterDesc = t;
-        break;
-      }
-    }
-    if (!currentChapterDesc && lines3.length > 0 && chNum3 <= lines3.length) {
-      currentChapterDesc = lines3[chNum3 - 1].trim();
-    }
+    const chs = splitOutline(n2.bible.outline);
+    const currentChapterDesc = (chNum3 <= chs.length) ? chs[chNum3 - 1] : '';
     if (currentChapterDesc) {
-      template = '【强制章节指令】现在写的是第' + chNum3 + '章。本章大纲要求是：' + currentChapterDesc + '\\n你只能写本章应该写的内容，不能提前写后面章节的事件，不能添加大纲中没有的角色或情节。\\n\\n' + template;
+      template = '【强制章节指令】现在写的是第' + chNum3 + '章。本章大纲要求：\n' + currentChapterDesc + '\n你只能写本章应该写的内容，不能提前写后面章节的事件，不能添加大纲中没有的角色或情节。\n\n' + template;
     }
   }
   return template
@@ -1287,16 +1692,18 @@ async function sendMessage() {
   const text = inp.value.trim();
   if (!text) { showToast('请输入内容'); return; }
   if (isWriting) return;
+  currentAbortController = new AbortController();
   try {
     isWriting = true;
     document.getElementById('sendBtn').disabled = true;
+    document.getElementById('stopBtn').style.display = 'flex';
     const n = getNovel();
     if (!n || !n.chapters) throw new Error('找不到小说数据');
     const c = n.chapters[currentChapterId];
     if (!c) throw new Error('找不到当前章节');
     const contentEl = document.getElementById('chapterContent');
     if (contentEl) {
-      contentEl.innerHTML = esc(c.content || '') + '<div class="loading-overlay"><div class="spinner"></div><span>✍ 写作中…</span></div>';
+      contentEl.innerHTML = esc(c.content || '') + '<div class="loading-overlay"><div class="spinner"></div><span>✍ 写作中…</span><div id="genProgress" style="margin-top:6px;font-size:12px;color:var(--text3);">0 / ' + chapterWordTarget.toLocaleString() + ' 字</div><div style="margin-top:4px;height:3px;background:var(--bg2);border-radius:2px;overflow:hidden;width:180px;margin-left:auto;margin-right:auto;"><div id="genProgressFill" style="height:100%;width:0%;background:linear-gradient(90deg,var(--accent2),var(--accent));border-radius:2px;transition:width .3s;"></div></div></div>';
     }
     inp.value = '';
     const model = currentModel;
@@ -1313,7 +1720,8 @@ async function sendMessage() {
     const res = await fetch(API_URL, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${API_KEY}` },
-      body: JSON.stringify({ model: MODELS[model], messages, max_tokens: 4000, temperature: model === 'flash' ? 0.8 : 0.9, stream: true })
+      body: JSON.stringify({ model: MODELS[model], messages, max_tokens: 8192, temperature: temperature, stream: true }),
+      signal: currentAbortController.signal
     });
     if (!res.ok) {
       const errText = await res.text();
@@ -1324,8 +1732,9 @@ async function sendMessage() {
     const decoder = new TextDecoder();
     let fullReply = '';
     let buffer = '';
+    let saveCounter = 0;
     if (contentEl) {
-      contentEl.innerHTML = esc(c.content || '') + '<div id="streamOutput" style="white-space:pre-wrap;line-height:1.9;"></div>';
+      contentEl.innerHTML = esc(c.content || '') + '<div id="streamOutput" class="ai-cursor" style="white-space:pre-wrap;line-height:1.9;color:' + aiColor + ';border-left:3px solid ' + aiColor + ';padding-left:12px;margin-top:8px;"></div>';
     }
     while (true) {
       const { done, value } = await reader.read();
@@ -1349,25 +1758,48 @@ async function sendMessage() {
             window._lastStreamTokens = (window._lastStreamTokens || 0) + (u.total_tokens || 0);
             // Track cost per model
             const model = currentModel;
-            const costIn = (model === 'pro' ? 4.0 : 0.5) * promptT / 1000000;
-            const costOut = (model === 'pro' ? 16.0 : 2.0) * completionT / 1000000;
+            const costIn = (model === 'pro' ? 0.435 : 0.14) * promptT / 1000000;
+            const costOut = (model === 'pro' ? 0.87 : 0.28) * completionT / 1000000;
             totalTokensCost += costIn + costOut;
             window._lastStreamCost = (window._lastStreamCost || 0) + costIn + costOut;
           }
         } catch(e) {}
       }
+      saveCounter++;
+      if (saveCounter % 15 === 0 && fullReply.length > 50) {
+        c.content = (existingContent || '') + '\n\n' + fullReply;
+        saveData();
+      }
       const streamEl = document.getElementById('streamOutput');
       if (streamEl) streamEl.textContent = fullReply;
+      const gp = document.getElementById('genProgress');
+      if (gp) gp.textContent = countChinese(fullReply).toLocaleString() + ' / ' + chapterWordTarget.toLocaleString() + ' 字';
+      const gf = document.getElementById('genProgressFill');
+      if (gf) gf.style.width = Math.min(100, Math.round(countChinese(fullReply) / chapterWordTarget * 100)) + '%';
+    }
+    // 处理 buffer 中残余数据
+    if (buffer.trim()) {
+      const line = buffer.trim();
+      if (line.startsWith('data: ')) {
+        const data = line.slice(6).trim();
+        if (data !== '[DONE]') try {
+          const parsed = JSON.parse(data);
+          if (parsed.usage) {
+            const u = parsed.usage;
+            totalTokensUsed += u.total_tokens || 0;
+            window._lastStreamTokens = (window._lastStreamTokens || 0) + (u.total_tokens || 0);
+            const model = currentModel;
+            totalTokensCost += ((model === 'pro' ? 0.435 : 0.14) * (u.prompt_tokens||0) / 1000000) + ((model === 'pro' ? 0.87 : 0.28) * (u.completion_tokens||0) / 1000000);
+            window._lastStreamCost = (window._lastStreamCost || 0) + ((model === 'pro' ? 0.435 : 0.14) * (u.prompt_tokens||0) / 1000000) + ((model === 'pro' ? 0.87 : 0.28) * (u.completion_tokens||0) / 1000000);
+          }
+        } catch(e) {}
+      }
     }
     let reply = fullReply.trim();
     reply = reply.replace(/^第[一二三四五六七八九十百千]+章[：:。]?\s*\n?/, '').trim();
     // 保证段落之间有空行
     reply = reply.replace(/\n{3,}/g, '\n\n').replace(/([^\n])\n([^\n])/g, '$1\n\n$2');
-    if (existingContent) {
-      c.content += '\n\n' + reply;
-    } else {
-      c.content = reply;
-    }
+    c.content = (existingContent ? existingContent + '\n\n' : '') + reply;
     // 自动生成章节摘要（取前100字）
     if (!c.summary) {
       c.summary = reply.replace(/\n/g, ' ').slice(0, 100) + (reply.length > 100 ? '…' : '');
@@ -1375,6 +1807,7 @@ async function sendMessage() {
     if (!c.history) c.history = [];
     c.history.push({ role: 'user', content: text });
     c.history.push({ role: 'assistant', content: `（${reply.length}字）`, model });
+    c._lastAiReply = reply;
     c.tokens = (c.tokens || 0) + (window._lastStreamTokens || 0);
     c.cost = (c.cost || 0) + (window._lastStreamCost || 0);
     window._lastStreamTokens = 0;
@@ -1385,15 +1818,22 @@ async function sendMessage() {
     updateWordCountBar();
     showToast(`✅ 完成 · ${reply.length.toLocaleString()} 字`);
   } catch (err) {
-    const el2 = document.getElementById('chapterContent');
-    if (el2) {
-      el2.innerHTML = `<div style="color:var(--danger);padding:20px;text-align:center;font-size:15px;">❌ 生成失败<br><br><span style="font-size:13px;color:var(--text2);">${esc(err.message || err)}</span></div>`;
+    if (err.name === 'AbortError') {
+      showToast('⏹ 已停止生成');
+    } else {
+      const el2 = document.getElementById('chapterContent');
+      if (el2) {
+        el2.innerHTML = `<div style="color:var(--danger);padding:20px;text-align:center;font-size:15px;">❌ 生成失败<br><br><span style="font-size:13px;color:var(--text2);">${esc(err.message || err)}</span></div>`;
+      }
+      showToast('❌ ' + (err.message || '失败'));
     }
-    showToast('❌ ' + (err.message || '失败'));
   } finally {
     isWriting = false;
+    currentAbortController = null;
     const sb = document.getElementById('sendBtn');
     if (sb) sb.disabled = false;
+    const stopBtn = document.getElementById('stopBtn');
+    if (stopBtn) stopBtn.style.display = 'none';
     document.getElementById('userInput')?.focus();
   }
 }
@@ -1403,6 +1843,14 @@ function showSettings() {
   document.getElementById('promptEditor').value = customPrompt || DEFAULT_PROMPT;
   document.getElementById('settingsModel').value = currentModel;
   document.getElementById('settingsWordTarget').value = chapterWordTarget;
+  const tempSlider = document.getElementById('settingsTemperature');
+  if (tempSlider) { tempSlider.value = temperature; document.getElementById('settingsTempValue').textContent = temperature.toFixed(1); }
+  const ac = document.getElementById('settingsAiColor');
+  if (ac) ac.value = aiColor;
+  const cc = document.getElementById('settingsContentColor');
+  if (cc) cc.value = contentColor;
+  const fs = document.getElementById('settingsFontSize');
+  if (fs) { fs.value = fontSize; document.getElementById('settingsFontSizeVal').textContent = fontSize + 'px'; }
   document.getElementById('settingsApiKey').value = API_KEY;
   showModal('settingsModal');
 }
@@ -1422,6 +1870,16 @@ function saveSettings() {
     localStorage.setItem('nwApiKey', key);
   }
   chapterWordTarget = parseInt(document.getElementById('settingsWordTarget').value) || 2000;
+  const tempSlider = document.getElementById('settingsTemperature');
+  if (tempSlider) temperature = parseFloat(tempSlider.value) || 0.7;
+  const ac = document.getElementById('settingsAiColor');
+  if (ac) aiColor = ac.value;
+  const cc = document.getElementById('settingsContentColor');
+  if (cc) contentColor = cc.value;
+  const fs = document.getElementById('settingsFontSize');
+  if (fs) fontSize = parseInt(fs.value) || 15;
+  // 立即应用字号到 paper
+  document.getElementById('paperArea')?.style.setProperty('font-size', fontSize + 'px');
   saveData();
   updateModelUI();
   closeModal('settingsModal');
@@ -1454,6 +1912,88 @@ function resetDefaultPrompt() {
 function testPrompt() {
   const preview = buildSystemPrompt();
   showToast('📋 ' + preview.slice(0, 100) + '…');
+}
+
+// ===== 导出/导入备份 =====
+function exportAllData() {
+  const data = localStorage.getItem('novelWriterData');
+  if (!data || data === '{}') { showToast('❌ 没有数据可导出'); return; }
+  document.getElementById('backupData').value = data;
+  const info = JSON.parse(data);
+  const novelCount = info.novels?.length || 0;
+  const chCount = info.novels?.reduce((s, n) => s + (n.chapters?.length || 0), 0) || 0;
+  document.getElementById('backupInfo').textContent = `共 ${novelCount} 篇小说，${chCount} 个章节，数据大小 ${(data.length/1024).toFixed(1)}KB`;
+  showModal('backupModal');
+}
+function copyBackup() {
+  const ta = document.getElementById('backupData');
+  if (!ta || !ta.value) return;
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(ta.value).then(() => showToast('✅ 已复制到剪贴板')).catch(() => fallbackCopy(ta));
+  } else {
+    fallbackCopy(ta);
+  }
+}
+function fallbackCopy(ta) {
+  ta.select();
+  ta.setSelectionRange(0, 999999);
+  document.execCommand('copy');
+  showToast('✅ 已复制');
+}
+function downloadBackup() {
+  const data = document.getElementById('backupData')?.value;
+  if (!data) return;
+  const blob = new Blob([data], { type: 'application/json;charset=utf-8' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = '小说坊备份_' + new Date().toISOString().slice(0, 10) + '.json';
+  a.click();
+  URL.revokeObjectURL(a.href);
+  showToast('✅ 已下载');
+}
+function showImportPanel() {
+  closeModal('backupModal');
+  document.getElementById('importData').value = '';
+  showModal('importModal');
+}
+function doImport() {
+  const text = document.getElementById('importData').value.trim();
+  if (!text) { showToast('❌ 请先粘贴备份内容'); return; }
+  try {
+    const data = JSON.parse(text);
+    if (!data.novels || !Array.isArray(data.novels)) {
+      showToast('❌ 无效的备份格式');
+      return;
+    }
+    showConfirm('确认导入？当前所有数据将被备份内容替换！', () => {
+      localStorage.setItem('novelWriterData', text);
+      location.reload();
+    });
+  } catch(err) {
+    showToast('❌ 数据解析失败：' + err.message);
+  }
+}
+function importAllData(event) {
+  const file = event.target.files?.[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = function(e) {
+    try {
+      const data = JSON.parse(e.target.result);
+      if (!data.novels || !Array.isArray(data.novels)) {
+        showToast('❌ 无效的备份文件');
+        return;
+      }
+      showConfirm('确认导入？当前所有数据将被备份文件替换！', () => {
+        localStorage.setItem('novelWriterData', JSON.stringify(data));
+        location.reload();
+      });
+    } catch(err) {
+      showToast('❌ 文件解析失败：' + err.message);
+    }
+  };
+  reader.readAsText(file);
+  event.target.value = '';
 }
 
 // ===== 导出 =====
@@ -1511,7 +2051,7 @@ async function generateOutline() {
     if (!res.ok) throw new Error('API 请求失败');
     const d = await res.json();
     const outline = d.choices?.[0]?.message?.content || '';
-    if (d.usage) { const u = d.usage; totalTokensUsed += u.total_tokens || 0; totalTokensCost += 0.5 * (u.prompt_tokens||0) / 1000000 + 2.0 * (u.completion_tokens||0) / 1000000; }
+    if (d.usage) { const u = d.usage; totalTokensUsed += u.total_tokens || 0; totalTokensCost += 0.14 * (u.prompt_tokens||0) / 1000000 + 0.28 * (u.completion_tokens||0) / 1000000; }
     document.getElementById('outlineResult').innerHTML = '<div style="font-size:12px;color:var(--text3);margin-bottom:4px;">📋 生成的大纲（创建后可在故事设定中编辑）</div><pre style="white-space:pre-wrap;font-size:13px;line-height:1.7;background:var(--bg2);padding:12px;border-radius:8px;margin:0;">' + esc(outline) + '</pre>';
     window._pendingOutline = outline;
     showToast('✅ 大纲已生成');
