@@ -970,7 +970,12 @@ function loadData() {
   if (pa) pa.style.fontSize = fontSize + 'px';
 }
 function saveData() {
-  localStorage.setItem('novelWriterData', JSON.stringify({ novels, currentModel, customPrompt, chapterWordTarget, temperature, aiColor, contentColor, fontSize, totalTokensUsed, totalTokensCost }));
+  try {
+    localStorage.setItem('novelWriterData', JSON.stringify({ novels, currentModel, customPrompt, chapterWordTarget, temperature, aiColor, contentColor, fontSize, totalTokensUsed, totalTokensCost }));
+  } catch(e) {
+    showToast('⚠️ 存储空间不足！请导出备份后清空数据');
+    return;
+  }
   clearTimeout(window._saveToastTimer);
   window._saveToastTimer = setTimeout(() => {
     const el = document.getElementById('toast');
