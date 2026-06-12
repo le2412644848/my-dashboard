@@ -563,7 +563,7 @@ body {
     <button class="icon-btn" onclick="showBible()" title="故事设定">📖</button>
     <button class="icon-btn" onclick="exportNovel()" title="导出">📥</button>
     <button class="icon-btn" onclick="deleteNovel()" title="删除小说" style="color:var(--danger);">🗑</button>
-    <button class="icon-btn" onclick="showConfirm('确定清空所有已写章节？故事设定和章节列表保留。',clearChapters)" title="清空章节内容" style="color:var(--accent3);font-size:14px;">🔄</button>
+    <button class="icon-btn" onclick="if(confirm('确定清空所有已写章节？章节列表和故事设定保留。'))clearChapters()" title="清空章节内容" style="color:var(--accent3);font-size:14px;">🔄</button>
   </div>
   <div id="chapterList"></div>
   <div id="genAllProgress" style="display:none;margin-top:10px;padding:12px;background:var(--card);border:1px solid var(--border);border-radius:var(--radius);text-align:center;font-size:14px;">
