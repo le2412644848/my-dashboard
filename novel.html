@@ -579,7 +579,7 @@ body {
 <!-- ===== 写作页 ===== -->
 <div id="page-write" class="page writing-container">
   <div class="header" style="margin-bottom:8px;">
-    <button class="back" onclick="if(isWriting||currentAbortController){showConfirm('正在写作中，确定离开？已写内容已自动保存。',function(){if(currentAbortController){currentAbortController.abort();currentAbortController=null;}isWriting=false;goChapters();})}else{goChapters()}">←</button>
+    <button class="back" onclick="if(isWriting||isGeneratingAll){showConfirm('正在写作中，确定离开？后台会继续写。',function(){goChapters();})}else{goChapters()}">←</button>
     <span class="write-title" id="writeTitle" style="font-size:16px;font-weight:600;flex:1;"></span>
     <div class="model-switch" id="writeModelSwitch">
       <button data-model="flash" class="active">Flash</button>
