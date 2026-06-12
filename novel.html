@@ -976,6 +976,13 @@ function loadData() {
 }
 function saveData() {
   try {
+    // 存入前清理无用数据以节省空间
+    for (const n of novels) {
+      for (const c of n.chapters || []) {
+        delete c._lastAiReply;
+        delete c.history;
+      }
+    }
     localStorage.setItem('novelWriterData', JSON.stringify({ novels, currentModel, customPrompt, chapterWordTarget, temperature, aiColor, contentColor, fontSize, totalTokensUsed, totalTokensCost }));
   } catch(e) {
     showToast('⚠️ 存储空间不足！请导出备份后清空数据');
@@ -2111,7 +2118,11 @@ function doImport() {
       return;
     }
     showConfirm('确认导入？当前所有数据将被备份内容替换！', () => {
-      localStorage.setItem('novelWriterData', text);
+      const clean = JSON.parse(text);
+      for (const n of clean.novels || []) {
+        for (const c of n.chapters || []) { delete c._lastAiReply; delete c.history; }
+      }
+      localStorage.setItem('novelWriterData', JSON.stringify(clean));
       location.reload();
     });
   } catch(err) {
@@ -2131,6 +2142,9 @@ function importAllData(event) {
         return;
       }
       showConfirm('确认导入？当前所有数据将被备份文件替换！', () => {
+        for (const n of data.novels || []) {
+          for (const c of n.chapters || []) { delete c._lastAiReply; delete c.history; }
+        }
         localStorage.setItem('novelWriterData', JSON.stringify(data));
         location.reload();
       });
