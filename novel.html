@@ -551,6 +551,7 @@ body {
   <div style="display:flex;gap:8px;margin-top:8px;">
     <button class="btn btn-secondary btn-sm" onclick="exportAllData()" style="flex:1;">💾 导出备份</button>
     <button class="btn btn-secondary btn-sm" onclick="showImportPanel()" style="flex:1;">📂 导入备份</button>
+    <button class="btn btn-danger btn-sm" onclick="if(confirm('重置全部数据？不可恢复！')){localStorage.removeItem('novelWriterData');location.reload();}" style="flex:1;">🗑️ 重置</button>
   </div>
   <input type="file" id="importInput" accept=".json" style="display:none" onchange="importAllData(event)">
 </div>
