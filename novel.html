@@ -1704,6 +1704,8 @@ async function doWrite(userText, isFullMessage) {
         el2.innerHTML = `<div style="color:var(--danger);padding:20px;text-align:center;font-size:15px;">❌ 生成失败<br><br><span style="font-size:13px;color:var(--text2);">${esc(err.message || err)}</span></div>`;
       }
       showToast('❌ ' + (err.message || '失败'));
+      // 非中止错误，继续下一章
+      if (window._genAllNext) window._genAllNext();
     }
   } finally {
     isWriting = false;
@@ -1712,7 +1714,6 @@ async function doWrite(userText, isFullMessage) {
     if (sb) sb.disabled = false;
     const stopBtn = document.getElementById('stopBtn');
     if (stopBtn) stopBtn.style.display = 'none';
-    if (window._genAllNext && err && err.name !== 'AbortError') window._genAllNext();
   }
 }
 function setQuickAction(action) {
