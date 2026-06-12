@@ -1693,13 +1693,14 @@ async function doWrite(userText, isFullMessage) {
   const maxRetries = 1;
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
   currentAbortController = new AbortController();
+  let n, c;
   try {
     isWriting = true;
     document.getElementById('sendBtn').disabled = true;
     document.getElementById('stopBtn').style.display = 'flex';
-    const n = getNovel();
+    n = getNovel();
     if (!n || !n.chapters) throw new Error('找不到小说数据');
-    const c = n.chapters[currentChapterId];
+    c = n.chapters[currentChapterId];
     if (!c) throw new Error('找不到当前章节');
     
     const contentEl = document.getElementById('chapterContent');
@@ -1817,11 +1818,15 @@ async function doWrite(userText, isFullMessage) {
     break; // 成功，退出重试循环
   } catch (err) {
     if (err.name === 'AbortError') {
-      const el2 = document.getElementById('chapterContent');
-      if (el2 && c && c.content) {
-        el2.innerHTML = esc(c.content) + '<div style="color:var(--accent3);padding:16px 20px;text-align:center;font-size:14px;border-top:1px solid var(--border);margin-top:12px;">⏹ 已停止 · 已写内容已保存</div>';
+      if (c && c.content) {
+        const el2 = document.getElementById('chapterContent');
+        if (el2) {
+          el2.innerHTML = esc(c.content) + '<div style="color:var(--accent3);padding:16px 20px;text-align:center;font-size:14px;border-top:1px solid var(--border);margin-top:12px;">⏹ 已停止 · 已写内容已保存</div>';
+        }
       }
       showToast('⏹ 已停止生成');
+      if (window._genAllNext) window._genAllNext();
+      break;
     } else {
       // 还可以重试
       if (attempt < maxRetries) {
