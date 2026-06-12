@@ -2048,12 +2048,20 @@ function exportAllData() {
   try {
     const data = localStorage.getItem('novelWriterData');
     if (!data || data === '{}') { showToast('❌ 没有数据可导出'); return; }
-    document.getElementById('backupData').value = data;
     const info = JSON.parse(data);
     const novelCount = info.novels?.length || 0;
     const chCount = info.novels?.reduce((s, n) => s + (n.chapters?.length || 0), 0) || 0;
     document.getElementById('backupInfo').textContent = `共 ${novelCount} 篇小说，${chCount} 个章节，数据大小 ${(data.length/1024).toFixed(1)}KB`;
-    showModal('backupModal');
+    // 直接下载文件（不在文本框显示，手机不卡）
+    const blob = new Blob([data], { type: 'application/json;charset=utf-8' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = '小说坊备份_' + new Date().toISOString().slice(0, 10) + '.json';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(a.href);
+    showToast('✅ 备份文件已下载');
   } catch(e) {
     showToast('❌ 导出失败: ' + e.message);
   }
