@@ -1634,8 +1634,6 @@ async function generateAllChapters() {
     window._genAllNext = null;
     // 更新章节列表进度
     try { renderChapters(); } catch(e) {}
-    // 安全兜底：如果 _genAllNext 没被正确清理，2分钟后自动继续
-    const safetyTimeout = setTimeout(() => { if (window._genAllNext) { window._genAllNext(); window._genAllNext = null; } }, 120000);
   }
   
   if (status) status.textContent = stopGeneratingAll ? '⏹ 已停止' : '✅ 全部生成完成！';
