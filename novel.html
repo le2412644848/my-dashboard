@@ -2759,7 +2759,7 @@ function openDB() {
       if (!db.objectStoreNames.contains('data')) db.createObjectStore('data');
     };
     r.onsuccess = () => resolve(r.result);
-    r.onerror = () => { try { fallbackToLS(); } catch(e) {} reject(r.error); };
+    r.onerror = () => { reject(r.error); };
   });
 }
 let _dbPromise = null;
@@ -2819,7 +2819,7 @@ function fallbackToLS(err) {
       localStorage.setItem('novel_body_' + _currentNovel.id, body);
     }
   } catch(e) { /* localStorage 也满则无能为力 */ }
-  _showLSWarning('⚠️ 数据库写入失败，已降级保存到浏览器本地存储（容量有限，请尽快导出备份）' + (err ? '：' + (err.message || err) : ''));
+  _showLSWarning('⚠️ 数据库写入失败，已降级保存到浏览器本地存储（容量有限，请勿清理浏览器数据并尽快导出备份）；下次正常启动时将自动尝试恢复' + (err ? '：' + (err.message || err) : ''));
 }
 
 // ===== 主题切换 =====
@@ -2844,6 +2844,99 @@ function toggleTheme() {
 
 let _novelCache = {}; // 运行时缓存：{ [id]: fullNovelData }（最多保留1部小说的正文）
 
+// F4: 将元数据应用到全局设置（正常加载与降级恢复共用）
+function _applyMetaSettings(m) {
+  m = m || {};
+  novels = m.novelsMeta || [];
+  currentModel = m.currentModel || 'flash';
+  customPrompt = m.customPrompt || null;
+  chapterWordTarget = m.chapterWordTarget || 2000;
+  temperature = m.temperature !== undefined ? m.temperature : 0.7;
+  aiColor = m.aiColor || '#f0a840';
+  contentColor = m.contentColor || '#e4e9f2';
+  fontSize = m.fontSize || 15;
+  totalTokensUsed = m.totalTokensUsed || 0;
+  totalTokensCost = m.totalTokensCost || 0;
+  readerSkin = m.readerSkin || 'dark';
+  readerFontSize = m.readerFontSize || 17;
+  readerLineHeight = m.readerLineHeight || 2;
+  readerBrightness = m.readerBrightness || 100;
+  _customProxy = m.customProxy || '';
+}
+
+// F4: 启动时从 localStorage 降级副本恢复数据（写回 IndexedDB）。
+// 启用条件：(a) IndexedDB 读取出错；(b) DB 中某书正文缺失/为空而 LS 有 novel_body_<id> 副本；
+//          (c) LS 的 novelWriterData 带 _fallbackAt 标记且 DB 元数据缺失。
+// 安全边界：DB 数据健康时绝不用 LS 旧副本覆盖；成功写回后才清对应 LS 降级键；全程 try/catch，失败不中断启动。
+async function _restoreFallbackFromLS(dbMeta) {
+  let restoredMeta = false, restoredBodies = 0, writeFailed = false;
+  try {
+    let lsMeta = null;
+    try {
+      const d = localStorage.getItem('novelWriterData');
+      if (d) lsMeta = JSON.parse(d);
+    } catch(e) { lsMeta = null; }
+    const dbMetaAbsent = !dbMeta || !Array.isArray(dbMeta.novelsMeta);
+    const dbMetaEmpty = !dbMetaAbsent && dbMeta.novelsMeta.length === 0;
+    const lsHasMeta = !!(lsMeta && Array.isArray(lsMeta.novelsMeta) && lsMeta.novelsMeta.length > 0);
+    const lsMarked = !!(lsMeta && lsMeta._fallbackAt);
+
+    // (1) 元数据：DB 元数据缺失，或为空且 LS 带 _fallbackAt 标记时，按 LS 副本恢复
+    if ((dbMetaAbsent || (dbMetaEmpty && lsMarked)) && lsHasMeta) {
+      _applyMetaSettings(lsMeta); // 先用 LS 数据启动内存
+      try {
+        await dbSave('novelWriterData', {
+          novelsMeta: lsMeta.novelsMeta,
+          currentModel: lsMeta.currentModel, customPrompt: lsMeta.customPrompt,
+          chapterWordTarget: lsMeta.chapterWordTarget, temperature: lsMeta.temperature,
+          aiColor: lsMeta.aiColor, contentColor: lsMeta.contentColor, fontSize: lsMeta.fontSize,
+          totalTokensUsed: lsMeta.totalTokensUsed || 0, totalTokensCost: lsMeta.totalTokensCost || 0,
+          readerSkin: lsMeta.readerSkin, readerFontSize: lsMeta.readerFontSize,
+          readerLineHeight: lsMeta.readerLineHeight, readerBrightness: lsMeta.readerBrightness,
+          customProxy: lsMeta.customProxy, lastSavedAt: Date.now()
+        });
+        restoredMeta = true;
+        try { localStorage.removeItem('novelWriterData'); } catch(e) {} // 清除 _fallbackAt 标记
+      } catch(e) { writeFailed = true; /* DB 不可写：保留 LS，内存仍可编辑 */ }
+    }
+
+    // (2) 正文：DB 中缺失或为空、而 LS 有降级副本时逐本恢复
+    const ids = new Set();
+    for (const n of (novels || [])) { if (n && n.id) ids.add(n.id); }
+    for (let i = 0; i < localStorage.length; i++) {
+      const k = localStorage.key(i);
+      if (k && k.indexOf('novel_body_') === 0) ids.add(k.slice('novel_body_'.length));
+    }
+    for (const id of ids) {
+      let lsBody = null;
+      try { const raw = localStorage.getItem('novel_body_' + id); if (raw) lsBody = JSON.parse(raw); } catch(e) { lsBody = null; }
+      if (!lsBody || !Array.isArray(lsBody.chapters) || lsBody.chapters.length === 0) continue;
+      let dbBody = null;
+      try { dbBody = await dbLoad('novel_body_' + id); } catch(e) { dbBody = null; }
+      const dbEmpty = !dbBody || !Array.isArray(dbBody.chapters) || dbBody.chapters.length === 0
+        || dbBody.chapters.every(c => !c || !String(c.content || '').trim());
+      if (!dbEmpty) continue; // DB 有正文 → 绝不用 LS 旧副本覆盖；保留 LS 以免丢掉可能更新的副本
+      try {
+        await dbSave('novel_body_' + id, lsBody);
+        restoredBodies++;
+        try { localStorage.removeItem('novel_body_' + id); } catch(e) {}
+      } catch(e) { writeFailed = true; }
+    }
+
+    // (3) 如实提示（成功 / 失败都要说清）
+    if (restoredMeta || restoredBodies > 0) {
+      showToast('✅ 已从本地降级备份恢复数据' + (restoredBodies > 0 ? '（正文 ' + restoredBodies + ' 篇）' : ''));
+      if (writeFailed) _showLSWarning('⚠️ 部分本地降级备份写回数据库失败，仍保存在浏览器本地，请勿清理浏览器数据并尽快导出备份');
+      else _hideLSWarning();
+    } else if (writeFailed) {
+      _showLSWarning('⚠️ 检测到本地降级备份，但写回数据库失败，暂未恢复；数据仍保存在浏览器本地，请勿清理浏览器数据并尽快导出备份');
+    } else if (lsMarked) {
+      _showLSWarning('⚠️ 存在本地降级备份（数据库写入失败时产生）；数据库恢复后重启将自动尝试恢复，请勿清理浏览器数据');
+    }
+  } catch(e) { /* 恢复失败不得中断启动 */ }
+  return restoredMeta || restoredBodies > 0;
+}
+
 function loadData() {
   window._dbReadError = false;
   dbLoad('novelWriterData').then(async p => {
@@ -2853,16 +2946,7 @@ function loadData() {
         await migrateOldFormat(p);
         return loadData(); // 重新加载新格式
       }
-      novels = p.novelsMeta || [];
-      currentModel = p.currentModel || 'flash';
-      customPrompt = p.customPrompt || null;
-      chapterWordTarget = p.chapterWordTarget || 2000;
-      temperature = p.temperature !== undefined ? p.temperature : 0.7;
-      aiColor = p.aiColor || '#f0a840';
-      contentColor = p.contentColor || '#e4e9f2';
-      fontSize = p.fontSize || 15;
-      totalTokensUsed = p.totalTokensUsed || 0;
-      totalTokensCost = p.totalTokensCost || 0;
+      _applyMetaSettings(p);
       // F17: 导入书优先从独立键加载；旧数据回退到元数据并迁移
       let _imported = await dbLoad('novelImportedBooks');
       if (_imported == null && p.importedBooks) {
@@ -2870,23 +2954,16 @@ function loadData() {
         try { await dbSave('novelImportedBooks', _imported); } catch(e) {}
       }
       importedBooks = _imported || [];
-      readerSkin = p.readerSkin || 'dark';
-      readerFontSize = p.readerFontSize || 17;
-      readerLineHeight = p.readerLineHeight || 2;
-      readerBrightness = p.readerBrightness || 100;
-      _customProxy = p.customProxy || '';
       if (document.getElementById('settingsModel')) {
         document.getElementById('settingsModel').value = currentModel;
         document.getElementById('settingsWordTarget').value = chapterWordTarget;
       }
     } else {
       // F4: 区分「无数据」与「读取出错」
-      if (window._dbReadError) showToast('⚠️ 本地数据读取出错，已按空数据启动（请勿立即保存，先刷新重试或从备份恢复）');
-      try {
-        const d = localStorage.getItem('novelWriterData');
-        if (d) { const parsed = JSON.parse(d); novels = parsed.novelsMeta || []; dbSave('novelWriterData', parsed); try { localStorage.removeItem('novelWriterData'); } catch(e) {} }
-      } catch(e) {}
+      if (window._dbReadError) showToast('⚠️ 本地数据读取出错，正在尝试从本地降级备份恢复…');
     }
+    // F4: LS 降级恢复（元数据缺失→补齐元数据；正文缺失/为空→补齐正文；DB 健康时不覆盖）
+    try { await _restoreFallbackFromLS(p); } catch(e) {}
     // F16: 启动时若存在更新的紧急暂存，恢复之
     let _stashRestored = false;
     try {
@@ -2911,7 +2988,13 @@ function loadData() {
     if (pa) pa.style.fontSize = fontSize + 'px';
     renderHome();
     if (_stashRestored) showToast('♻️ 已恢复上次未保存的编辑');
-  }).catch((err) => { showToast('❌ 数据读取失败：' + (err && err.message ? err.message : err)); renderHome(); });
+  }).catch(async (err) => {
+    // F4: IndexedDB 打开/读取失败 → 尝试用本地降级备份启动（DB 不可写时保留 LS 数据）
+    window._dbReadError = true;
+    try { await _restoreFallbackFromLS(null); } catch(e) {}
+    if (!novels.length) showToast('❌ 数据读取失败：' + (err && err.message ? err.message : err));
+    renderHome();
+  });
 }
 
 async function migrateOldFormat(oldData) {
@@ -4622,10 +4705,12 @@ async function doImport() {
   });
 }
 async function doImportData(data) {
-  // F3: 先写新数据并回读校验，成功后才删旧数据；任一步失败则保留旧数据并报错，不 reload
+  // F3: 先把正文/元数据写入 import_ 临时键 → 回读内容与序列化字符串做全串比对 →
+  //     通过后才写最终键、写元数据，最后清理新集合外的旧正文；任一步失败则清临时键、报错、不删旧数据、不 reload。
+  const tempKeys = []; // 本次写入的临时键
   try {
     const oldData = await dbLoad('novelWriterData');
-    const writtenIds = []; // 本次写入的 novel_body_* id
+    const tempBodies = []; // { id, body, tempKey }
     let novelsMeta;
     if (data.novels && !data.novelsMeta) {
       // 旧格式：每个novel里直接有chapters
@@ -4641,8 +4726,7 @@ async function doImportData(data) {
           _tags: n._tags,
           _readingProgress: n._readingProgress || n.readingProgress || 0
         };
-        await dbSave('novel_body_' + nid, body);
-        writtenIds.push(nid);
+        tempBodies.push({ id: nid, body, tempKey: 'import_body_' + nid });
         novelsMeta.push({
           id: nid, title: n.title || '未命名', style: n.style || '古风',
           coverColor: n.coverColor || COVER_GRADIENTS[0],
@@ -4663,25 +4747,11 @@ async function doImportData(data) {
       showToast('⏳ 正在写入 ' + novelsMeta.length + ' 篇小说元数据' + (bodyCount ? ' + ' + bodyCount + ' 个正文' : '') + '…');
       if (data._bodies) {
         for (const [id, body] of Object.entries(data._bodies)) {
-          await dbSave('novel_body_' + id, body);
-          writtenIds.push(id);
+          tempBodies.push({ id, body, tempKey: 'import_body_' + id });
         }
       }
     }
-    // 回读校验：确认正文都已落盘
-    for (const id of writtenIds) {
-      const chk = await dbLoad('novel_body_' + id);
-      if (!chk) throw new Error('正文字段写入校验失败：' + id);
-    }
-    // 校验通过后才清理旧数据中不再存在的正文
-    if (oldData?.novelsMeta) {
-      const newIdSet = new Set(writtenIds);
-      for (const m of oldData.novelsMeta) {
-        if (!newIdSet.has(m.id)) { try { await dbDelete('novel_body_' + m.id); } catch(e) {} }
-      }
-    }
-    showToast('⏳ 正在保存…');
-    await dbSave('novelWriterData', {
+    const importMeta = {
       novelsMeta,
       currentModel: data.currentModel, customPrompt: data.customPrompt,
       chapterWordTarget: data.chapterWordTarget, temperature: data.temperature,
@@ -4689,12 +4759,39 @@ async function doImportData(data) {
       totalTokensUsed: data.totalTokensUsed || 0, totalTokensCost: data.totalTokensCost || 0,
       readerSkin: data.readerSkin, readerFontSize: data.readerFontSize,
       readerLineHeight: data.readerLineHeight, readerBrightness: data.readerBrightness
-    });
+    };
+    const tempMetaKey = 'import_meta';
+    // 1) 全部写入临时键，现有数据完全不动
+    for (const it of tempBodies) { await dbSave(it.tempKey, it.body); tempKeys.push(it.tempKey); }
+    await dbSave(tempMetaKey, importMeta); tempKeys.push(tempMetaKey);
+    // 2) 回读临时键内容，与待写入的序列化字符串做全串比对
+    for (const it of tempBodies) {
+      const expected = JSON.stringify(it.body);
+      const chk = await dbLoad(it.tempKey);
+      if (chk === null || JSON.stringify(chk) !== expected) throw new Error('正文临时数据内容校验失败：' + it.id);
+    }
+    const expectedMeta = JSON.stringify(importMeta);
+    const chkMeta = await dbLoad(tempMetaKey);
+    if (chkMeta === null || JSON.stringify(chkMeta) !== expectedMeta) throw new Error('元数据临时数据内容校验失败');
+    // 3) 校验通过：写最终键与元数据，再清理新集合外的旧正文
+    showToast('⏳ 校验通过，正在切换…');
+    for (const it of tempBodies) await dbSave('novel_body_' + it.id, it.body);
+    await dbSave('novelWriterData', importMeta);
     // F17: 导入书拆到独立 IndexedDB 键，元数据不再连带全量导入书
     try { await dbSave('novelImportedBooks', data.importedBooks || []); } catch(e) {}
+    const newIdSet = new Set(tempBodies.map(it => it.id));
+    if (oldData?.novelsMeta) {
+      for (const m of oldData.novelsMeta) {
+        if (!newIdSet.has(m.id)) { try { await dbDelete('novel_body_' + m.id); } catch(e) {} }
+      }
+    }
+    // 4) 清理本次全部临时键
+    for (const k of tempKeys) { try { await dbDelete(k); } catch(e) {} }
     showToast('✅ 导入完成，正在刷新…');
     setTimeout(() => location.reload(), 300);
   } catch(err) {
+    // 失败：清临时键、不删旧数据、不 reload
+    for (const k of tempKeys) { try { await dbDelete(k); } catch(e) {} }
     showToast('❌ 导入失败（' + (err.message || err) + '），已保留原数据');
   }
 }
