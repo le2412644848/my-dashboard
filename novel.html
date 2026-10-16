@@ -2,7 +2,7 @@
 <html lang="zh-CN">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>小说坊 — AI写作助手</title>
 <meta name="theme-color" content="#0b0e14">
 <meta name="apple-mobile-web-app-capable" content="yes">
@@ -1983,6 +1983,7 @@ body::before {
           <input type="password" id="settingsApiKey" placeholder="sk-..." style="padding-right:60px;">
           <button class="btn btn-sm btn-secondary" onclick="toggleApiKeyVisibility()" style="position:absolute;right:4px;top:4px;padding:4px 10px;font-size:12px;">显示</button>
         </div>
+        <p style="font-size:11px;color:var(--text3);line-height:1.5;margin:-6px 0 12px;">⚠️ 仅本地混淆保存，非真加密，请勿在公共设备使用</p>
         <label>默认写作模型</label>
         <select id="settingsModel">
           <option value="flash">⚡ Flash（快速省钱）</option>
@@ -2573,6 +2574,7 @@ body::before {
 
 <script>
 // ===== 常量 =====
+// F18: 注意：encryptKey/decryptKey 只是 XOR+btoa 的本地混淆，并非真加密；存储格式保持不变（兼容旧存档 nwApiKey）
 function encryptKey(k) { return btoa(k.split('').map((c,i)=>String.fromCharCode(c.charCodeAt(0)^0x5A^(i%31))).join('')); }
 function decryptKey(ek) { try { return atob(ek).split('').map((c,i)=>String.fromCharCode(c.charCodeAt(0)^0x5A^(i%31))).join(''); } catch(e) { return ek; } }
 let API_KEY = (() => { const ek = localStorage.getItem('nwApiKey'); return ek ? decryptKey(ek) : ''; })();
@@ -2587,6 +2589,26 @@ let sessionApiCalls = 0;
 let sessionStartTime = Date.now();
 let dailyBudget = parseInt(localStorage.getItem('dailyBudget') || 0);
 let monthlyBudget = parseInt(localStorage.getItem('monthlyBudget') || 0);
+// F10: 日/月花费累计（localStorage 持久化，跨日/跨月自动重置）
+function _budgetSpent(period) {
+  const periodKey = period === 'month' ? new Date().toISOString().slice(0, 7) : new Date().toDateString();
+  const storeKey = period === 'month' ? 'budgetMonthSpent' : 'budgetDaySpent';
+  let v = null;
+  try { v = JSON.parse(localStorage.getItem(storeKey) || 'null'); } catch(e) {}
+  if (!v || v.period !== periodKey) {
+    v = { period: periodKey, cost: 0 };
+    try { localStorage.setItem(storeKey, JSON.stringify(v)); } catch(e) {}
+  }
+  return v;
+}
+function addBudgetSpend(cost) {
+  if (!(cost > 0)) return;
+  ['day', 'month'].forEach(p => {
+    const v = _budgetSpent(p);
+    v.cost += cost;
+    try { localStorage.setItem(p === 'month' ? 'budgetMonthSpent' : 'budgetDaySpent', JSON.stringify(v)); } catch(e) {}
+  });
+}
 let temperature = 0.7;
 let aiColor = '#f0a840';
 let contentColor = '#e4e9f2';
@@ -2757,8 +2779,8 @@ async function dbLoad(key) {
   const db = await getDB();
   return new Promise(r => {
     const t = db.transaction('data').objectStore('data').get(key);
-    t.onsuccess = () => { try { r(t.result ? JSON.parse(t.result) : null); } catch(e) { r(null); } };
-    t.onerror = () => r(null);
+    t.onsuccess = () => { try { r(t.result ? JSON.parse(t.result) : null); } catch(e) { window._dbReadError = true; r(null); } };
+    t.onerror = () => { window._dbReadError = true; r(null); };
   });
 }
 async function dbDelete(key) {
@@ -2771,7 +2793,34 @@ async function dbDelete(key) {
     tx.onabort = () => reject(new Error('事务中止'));
   });
 }
-function fallbackToLS() { /* 忽略，静默降级 */ }
+// F4: 降级到 localStorage 并挂持久警示（IndexedDB 不可用时）
+function _showLSWarning(msg) {
+  let bar = document.getElementById('lsWarningBar');
+  if (!bar) {
+    bar = document.createElement('div');
+    bar.id = 'lsWarningBar';
+    bar.style.cssText = 'position:fixed;left:0;right:0;bottom:0;z-index:99999;background:#b3261e;color:#fff;font-size:12px;line-height:1.5;padding:6px 10px;text-align:center;';
+    document.body.appendChild(bar);
+  }
+  bar.textContent = msg;
+  bar.style.display = 'block';
+}
+function _hideLSWarning() {
+  const bar = document.getElementById('lsWarningBar');
+  if (bar) bar.style.display = 'none';
+}
+function fallbackToLS(err) {
+  // F4: 真降级——把元数据写入 localStorage，并尽量带上当前小说正文（均受容量限制）
+  try {
+    const payload = { novelsMeta: novels, currentModel, customPrompt, chapterWordTarget, temperature, aiColor, contentColor, fontSize, totalTokensUsed, totalTokensCost, readerSkin, readerFontSize, readerLineHeight, readerBrightness, customProxy: _customProxy, _fallbackAt: new Date().toISOString() };
+    localStorage.setItem('novelWriterData', JSON.stringify(payload));
+    if (_currentNovel && _currentNovel.id) {
+      const body = JSON.stringify({ chapters: _currentNovel.chapters || [], bible: _currentNovel.bible || {}, characters: _currentNovel.characters || [] });
+      localStorage.setItem('novel_body_' + _currentNovel.id, body);
+    }
+  } catch(e) { /* localStorage 也满则无能为力 */ }
+  _showLSWarning('⚠️ 数据库写入失败，已降级保存到浏览器本地存储（容量有限，请尽快导出备份）' + (err ? '：' + (err.message || err) : ''));
+}
 
 // ===== 主题切换 =====
 function toggleTheme() {
@@ -2796,6 +2845,7 @@ function toggleTheme() {
 let _novelCache = {}; // 运行时缓存：{ [id]: fullNovelData }（最多保留1部小说的正文）
 
 function loadData() {
+  window._dbReadError = false;
   dbLoad('novelWriterData').then(async p => {
     if (p) {
       // 检测旧格式（novels 里有 chapters）→ 自动迁移
@@ -2813,7 +2863,13 @@ function loadData() {
       fontSize = p.fontSize || 15;
       totalTokensUsed = p.totalTokensUsed || 0;
       totalTokensCost = p.totalTokensCost || 0;
-      importedBooks = p.importedBooks || [];
+      // F17: 导入书优先从独立键加载；旧数据回退到元数据并迁移
+      let _imported = await dbLoad('novelImportedBooks');
+      if (_imported == null && p.importedBooks) {
+        _imported = p.importedBooks;
+        try { await dbSave('novelImportedBooks', _imported); } catch(e) {}
+      }
+      importedBooks = _imported || [];
       readerSkin = p.readerSkin || 'dark';
       readerFontSize = p.readerFontSize || 17;
       readerLineHeight = p.readerLineHeight || 2;
@@ -2824,17 +2880,38 @@ function loadData() {
         document.getElementById('settingsWordTarget').value = chapterWordTarget;
       }
     } else {
+      // F4: 区分「无数据」与「读取出错」
+      if (window._dbReadError) showToast('⚠️ 本地数据读取出错，已按空数据启动（请勿立即保存，先刷新重试或从备份恢复）');
       try {
         const d = localStorage.getItem('novelWriterData');
         if (d) { const parsed = JSON.parse(d); novels = parsed.novelsMeta || []; dbSave('novelWriterData', parsed); try { localStorage.removeItem('novelWriterData'); } catch(e) {} }
       } catch(e) {}
     }
+    // F16: 启动时若存在更新的紧急暂存，恢复之
+    let _stashRestored = false;
+    try {
+      const _stashRaw = localStorage.getItem('novelStash');
+      if (_stashRaw) {
+        const st = JSON.parse(_stashRaw);
+        if (st && st.id && st.at > ((p && p.lastSavedAt) || 0)) {
+          const _dbBody = await dbLoad('novel_body_' + st.id);
+          const _stWords = ((st.body && st.body.chapters) || []).reduce((s, c) => s + countChinese(c.content || ''), 0);
+          const _dbWords = ((_dbBody && _dbBody.chapters) || []).reduce((s, c) => s + countChinese(c.content || ''), 0);
+          if (!_dbBody || _stWords > _dbWords) {
+            await dbSave('novel_body_' + st.id, st.body);
+            _stashRestored = true;
+          }
+        }
+        localStorage.removeItem('novelStash');
+      }
+    } catch(e) {}
     dbLoad('theme').then(t => { if (t) { currentTheme = t; document.documentElement.setAttribute('data-theme', t); const btn = document.getElementById('themeBtn'); if (btn) btn.textContent = t === 'dark' ? '🌙' : '☀'; } }).catch(() => {});
     updateModelUI();
     const pa = document.getElementById('paperArea');
     if (pa) pa.style.fontSize = fontSize + 'px';
     renderHome();
-  }).catch(() => renderHome());
+    if (_stashRestored) showToast('♻️ 已恢复上次未保存的编辑');
+  }).catch((err) => { showToast('❌ 数据读取失败：' + (err && err.message ? err.message : err)); renderHome(); });
 }
 
 async function migrateOldFormat(oldData) {
@@ -2856,12 +2933,13 @@ async function migrateOldFormat(oldData) {
       hasBible: !!(n.bible && (n.bible.synopsis || n.bible.characters)),
     });
   }
+  // F17: 导入书拆到独立键
+  try { await dbSave('novelImportedBooks', oldData.importedBooks || []); } catch(e) {}
   await dbSave('novelWriterData', {
     novelsMeta, currentModel: oldData.currentModel, customPrompt: oldData.customPrompt,
     chapterWordTarget: oldData.chapterWordTarget, temperature: oldData.temperature,
     aiColor: oldData.aiColor, contentColor: oldData.contentColor, fontSize: oldData.fontSize,
     totalTokensUsed: oldData.totalTokensUsed, totalTokensCost: oldData.totalTokensCost,
-    importedBooks: oldData.importedBooks || [],
     readerSkin: oldData.readerSkin, readerFontSize: oldData.readerFontSize,
     readerLineHeight: oldData.readerLineHeight, readerBrightness: oldData.readerBrightness
   });
@@ -2928,6 +3006,21 @@ async function persistCurrentNovel() {
   _novelCache[_currentNovel.id] = _currentNovel;
 }
 
+// F16: 紧急同步暂存（beforeunload / 页面隐藏时无法 await IndexedDB）
+function stashCurrentNovelSync() {
+  if (!_currentNovel || !_currentNovel.id) return;
+  try {
+    const payload = JSON.stringify({
+      id: _currentNovel.id,
+      title: _currentNovel.title || '',
+      at: Date.now(),
+      body: { chapters: _currentNovel.chapters || [], bible: _currentNovel.bible || {}, characters: _currentNovel.characters || [] }
+    });
+    if (payload.length > 4500000) return; // 超限放弃，避免挤爆 localStorage
+    localStorage.setItem('novelStash', payload);
+  } catch(e) { /* localStorage 满则放弃暂存 */ }
+}
+
 // 同步版本（用于 beforeunload 等无法 await 的场景）
 function persistCurrentNovelSync() {
   if (!_currentNovel || !_currentNovel.id) return;
@@ -2954,34 +3047,47 @@ function persistCurrentNovelSync() {
 // 防抖保存（元数据 + 当前小说正文）
 function saveData() {
   clearTimeout(window._saveDebounceTimer);
-  window._saveDebounceTimer = setTimeout(() => _doSave(), 500);
-  clearTimeout(window._saveToastTimer);
-  window._saveToastTimer = setTimeout(() => {
-    const el = document.getElementById('toast');
-    if (el && !el.classList.contains('show')) showToast('💾 已保存');
-  }, 100);
+  // F4: 仅在真正保存成功后提示「已保存」，失败必须冒泡到 UI 报错
+  window._saveDebounceTimer = setTimeout(() => {
+    _doSave()
+      .then(() => { _hideLSWarning(); showToast('💾 已保存'); })
+      .catch(err => { showToast('❌ 保存失败：' + (err.message || err)); });
+  }, 500);
 }
 
 async function _doSave() {
-  await persistCurrentNovel();
-  // 清理
-  for (const n of novels) {
-    // 仅清理当前缓存中的小说正文
-    if (_novelCache[n.id] && _novelCache[n.id].chapters) {
-      for (const c of _novelCache[n.id].chapters) {
-        delete c._lastAiReply;
-        delete c._revisions;
-        if (c.history && c.history.length > 4) c.history = c.history.slice(-4);
+  try {
+    await persistCurrentNovel();
+    // 清理
+    for (const n of novels) {
+      // 仅清理当前缓存中的小说正文
+      if (_novelCache[n.id] && _novelCache[n.id].chapters) {
+        for (const c of _novelCache[n.id].chapters) {
+          delete c._lastAiReply;
+          if (c.history && c.history.length > 4) c.history = c.history.slice(-4);
+        }
       }
     }
+    // F17: 导入书单独存储，元数据不再连带全量导入书
+    await dbSave('novelImportedBooks', importedBooks);
+    await dbSave('novelWriterData', { novelsMeta: novels, currentModel, customPrompt, chapterWordTarget, temperature, aiColor, contentColor, fontSize, totalTokensUsed, totalTokensCost, readerSkin, readerFontSize, readerLineHeight, readerBrightness, customProxy: _customProxy, lastSavedAt: Date.now() });
+    // F16: DB 正常保存成功后清除紧急暂存
+    try { localStorage.removeItem('novelStash'); } catch(e) {}
+  } catch (e) {
+    fallbackToLS(e); // F4: 降级兜底
+    throw e;         // 冒泡到 UI
   }
-  await dbSave('novelWriterData', { novelsMeta: novels, currentModel, customPrompt, chapterWordTarget, temperature, aiColor, contentColor, fontSize, totalTokensUsed, totalTokensCost, importedBooks, readerSkin, readerFontSize, readerLineHeight, readerBrightness, customProxy: _customProxy });
 }
 
 function saveDataNow() {
+  // F16: 先同步写紧急暂存，防止页面卸载时 IndexedDB 未落盘
+  stashCurrentNovelSync();
   clearTimeout(window._saveDebounceTimer);
   persistCurrentNovelSync();
-  dbSave('novelWriterData', { novelsMeta: novels, currentModel, customPrompt, chapterWordTarget, temperature, aiColor, contentColor, fontSize, totalTokensUsed, totalTokensCost, importedBooks, readerSkin, readerFontSize, readerLineHeight, readerBrightness, customProxy: _customProxy });
+  try { dbSave('novelImportedBooks', importedBooks); } catch(e) {}
+  dbSave('novelWriterData', { novelsMeta: novels, currentModel, customPrompt, chapterWordTarget, temperature, aiColor, contentColor, fontSize, totalTokensUsed, totalTokensCost, readerSkin, readerFontSize, readerLineHeight, readerBrightness, customProxy: _customProxy, lastSavedAt: Date.now() })
+    .then(() => { try { localStorage.removeItem('novelStash'); } catch(e) {} _hideLSWarning(); })
+    .catch(err => { fallbackToLS(err); });
 }
 
 // ===== Model switch =====
@@ -3037,16 +3143,22 @@ function esc(s) {
   d.textContent = s;
   return d.innerHTML;
 }
+// V2: 弹层打开时锁定背景滚动（按当前打开的弹层数判断，避免嵌套误开）
+function updateBodyScrollLock() {
+  const anyOpen = document.querySelectorAll('.modal-overlay.active, .confirm-overlay.active, #readerOverlay.active').length > 0;
+  document.body.style.overflow = anyOpen ? 'hidden' : '';
+}
 function showModal(id) {
   const el = document.getElementById(id);
   el.classList.remove('closing');
   el.classList.add('active');
+  updateBodyScrollLock();
 }
 function closeModal(id) {
   const el = document.getElementById(id);
   if (!el.classList.contains('active')) return;
   el.classList.add('closing');
-  setTimeout(() => { el.classList.remove('active', 'closing'); }, 180);
+  setTimeout(() => { el.classList.remove('active', 'closing'); updateBodyScrollLock(); }, 180);
 }
 function switchPage(id) {
   document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
@@ -3094,13 +3206,18 @@ let confirmCallback = null;
 function showConfirm(text, cb) {
   document.getElementById('confirmText').textContent = text;
   document.getElementById('confirmDialog').classList.add('active');
+  updateBodyScrollLock();
   confirmCallback = cb;
-  document.getElementById('confirmBtn').onclick = () => { closeConfirm(); if(confirmCallback) confirmCallback(); };
+  document.getElementById('confirmBtn').onclick = () => {
+    const cb = confirmCallback;   // F2: 先取出回调，closeConfirm 会置空 confirmCallback
+    closeConfirm();
+    if (cb) cb();
+  };
 }
 function closeConfirm() {
   const el = document.getElementById('confirmDialog');
   el.classList.add('closing');
-  setTimeout(() => { el.classList.remove('active', 'closing'); }, 180);
+  setTimeout(() => { el.classList.remove('active', 'closing'); updateBodyScrollLock(); }, 180);
   confirmCallback = null;
 }
 
@@ -3184,7 +3301,7 @@ function renderMyWorks() {
       <div class="shelf-cover" style="background:${coverColor};">${esc(n.title).charAt(0)}</div>
       <div class="shelf-info">
         <div class="shelf-title">${esc(n.title)} ${n.hasBible ? '📖' : ''}${recentlyRead ? '<span class="recent-badge">最近</span>' : ''}</div>
-        <div class="shelf-meta">${n.style || '未知'} · ${n.chapterCount || 0} 章${n.doneCount > 0 ? ' · 已完成 ' + n.doneCount + '/' + n.chapterCount + ' 章' : ''} · ${(n.wordCount || 0).toLocaleString()} 字</div>
+        <div class="shelf-meta">${esc(n.style || '未知')} · ${n.chapterCount || 0} 章${n.doneCount > 0 ? ' · 已完成 ' + n.doneCount + '/' + n.chapterCount + ' 章' : ''} · ${(n.wordCount || 0).toLocaleString()} 字</div>
         ${n.readingProgress > 0 ? `<div class="shelf-progress">已读 ${n.readingProgress}%</div>` : ''}
         <div class="progress-bar"><div class="fill" style="width:${Math.min(100, Math.round((n.wordCount || 0)/chapterWordTarget*100))}%"></div></div>
       </div>
@@ -3238,7 +3355,7 @@ function renderBookshelf() {
       '<div class="shelf-cover" style="background:' + coverColor + ';">' + esc(b.title).charAt(0) + '</div>' +
       '<div class="shelf-info">' +
         '<div class="shelf-title">' + esc(b.title) + (recentlyRead ? '<span class="recent-badge">最近</span>' : '') + '</div>' +
-        '<div class="shelf-meta">' + (b.author || '未知作者') + ' · ' + b.chapters.length + ' 章 · ' + (b.totalWords || 0).toLocaleString() + ' 字' +
+        '<div class="shelf-meta">' + esc(b.author || '未知作者') + ' · ' + b.chapters.length + ' 章 · ' + (b.totalWords || 0).toLocaleString() + ' 字' +
           (b._downloading ? ' <span style="color:var(--accent);font-size:11px;">⬇' + (b._downloaded||0) + '/' + (b._downloadTotal||b.chapters.length) + '</span>' : '') +
         '</div>' +
         (b._downloading ? '<div class="shelf-progress" style="color:var(--accent);">正在下载... ' + (b._downloaded||0) + '/' + (b._downloadTotal||b.chapters.length) + ' 章</div>' : '') +
@@ -3375,8 +3492,8 @@ function renderChapters() {
     return `<div class="card chapter-item">
       <div class="ch-num">${i+1}</div>
       <div class="info" onclick="openChapter(${i})">
-        <div class="ch-title">${(c.content||'').length > 100 ? '✅ ' : '📝 '}${c.title || '第' + (i+1) + '章'}</div>
-        <div class="ch-meta">${len.toLocaleString()} 字 · ${c.model||'flash'}${c.tokens ? ' · ⚡' + c.tokens.toLocaleString() : ''}${c.cost ? ' ¥' + c.cost.toFixed(4) : ''}${c.summary ? ' · 📝' : ''}</div>
+        <div class="ch-title">${(c.content||'').length > 100 ? '✅ ' : '📝 '}${esc(c.title || '第' + (i+1) + '章')}</div>
+        <div class="ch-meta">${len.toLocaleString()} 字 · ${esc(c.model||'flash')}${c.tokens ? ' · ⚡' + c.tokens.toLocaleString() : ''}${c.cost ? ' ¥' + c.cost.toFixed(4) : ''}${c.summary ? ' · 📝' : ''}</div>
         <div class="progress-bar"><div class="fill" style="width:${pct}%"></div></div>
       </div>
       <div class="actions">
@@ -3427,10 +3544,21 @@ function moveChapter(idx, dir) {
 }
 function deleteChapter(idx) {
   const n = getNovel();
-  n.chapters.splice(idx, 1);
-  saveData();
-  renderChapters();
-  showToast('已删除');
+  if (!n || !n.chapters[idx]) return;
+  const c = n.chapters[idx];
+  const label = c.title ? '「' + c.title + '」' : ('第' + (idx + 1) + '章');
+  // F13: 删除前确认（走已修复的 showConfirm）
+  showConfirm('确定删除' + label + '？删除后不可恢复。', () => {
+    n.chapters.splice(idx, 1);
+    // 修正当前章节指针，避免越界
+    if (currentChapterId !== null) {
+      if (currentChapterId >= n.chapters.length) currentChapterId = n.chapters.length - 1;
+      if (currentChapterId < 0) currentChapterId = null;
+    }
+    saveData();
+    renderChapters();
+    showToast('已删除');
+  });
 }
 function clearChapters() {
   const n = getNovel();
@@ -3916,6 +4044,7 @@ async function generateAllChapters() {
 }
 
 function autoWrite() {
+  if (!window._genAllNext) stopGeneratingAll = false; // F1: 单章入口复位急停标志
   const n = getNovel();
   if (!n) { showToast('请先选择小说'); if (window._genAllNext) window._genAllNext(); return; }
   const c = n.chapters[currentChapterId];
@@ -3963,13 +4092,21 @@ function autoWrite() {
 // 直接发送，不经过输入框
 // isFullMessage=true 时 userText 已经是完整的用户消息，不包装
 async function doWrite(userText, isFullMessage) {
+  // F1: 非批量（单章）链路复位急停标志，避免急停后单章生成哑火
+  if (!window._genAllNext) stopGeneratingAll = false;
   if (isWriting) { if (window._genAllNext) window._genAllNext(); return; }
   const maxRetries = 1;
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
-  if (stopGeneratingAll) break;
+  if (stopGeneratingAll) {
+    // F1: 命中急停时给出明确提示，并解开批量等待
+    showToast('⏹ 已取消生成');
+    if (window._genAllNext) window._genAllNext();
+    break;
+  }
   if (currentAbortController) { try { currentAbortController.abort(); } catch(e) {} }
   currentAbortController = new AbortController();
   let n, c;
+  let fullReply = ''; // F5: 提升作用域，中断分支也能拿到已生成内容
   try {
     sessionApiCalls++;
     isWriting = true;
@@ -4021,12 +4158,14 @@ async function doWrite(userText, isFullMessage) {
         : `写一章新的${n.style}小说：${userText}`;
     }
     
-    // 费用预算检查
-    const today = new Date().toDateString();
-    const todayCost = totalTokensCost - (window._monthStartCost || 0);
-    // 简化：检查每日预算
-    if (dailyBudget > 0 && estCost > dailyBudget * 0.8) {
-      showToast('⚠️ 本次预估将花费¥' + estCost.toFixed(4) + '，已达每日预算' + dailyBudget + '元的' + Math.round(estCost/dailyBudget*100) + '%');
+    // F10: 预算检查改为「已累计 + 本次预估」对日/月预算比较，口径与文案一致
+    const _daySpent = _budgetSpent('day').cost;
+    const _monthSpent = _budgetSpent('month').cost;
+    if (dailyBudget > 0 && (_daySpent + estCost) > dailyBudget * 0.8) {
+      showToast('⚠️ 今日已花费¥' + _daySpent.toFixed(4) + '，本次预估¥' + estCost.toFixed(4) + '，累计将达每日预算' + dailyBudget + '元的' + Math.round((_daySpent + estCost) / dailyBudget * 100) + '%');
+    }
+    if (monthlyBudget > 0 && (_monthSpent + estCost) > monthlyBudget * 0.8) {
+      showToast('⚠️ 本月已花费¥' + _monthSpent.toFixed(4) + '，本次预估¥' + estCost.toFixed(4) + '，累计将达每月预算' + monthlyBudget + '元的' + Math.round((_monthSpent + estCost) / monthlyBudget * 100) + '%');
     }
 
     const messages = [{ role: 'system', content: systemPrompt }, { role: 'user', content: userMsg }];
@@ -4046,7 +4185,7 @@ async function doWrite(userText, isFullMessage) {
     // 流式读取
     const reader = res.body.getReader();
     const decoder = new TextDecoder();
-    let fullReply = '';
+    fullReply = '';
     let buffer = '';
 
     // 显示loading占位
@@ -4076,6 +4215,7 @@ async function doWrite(userText, isFullMessage) {
           sessionTokens += u.total_tokens || 0;
           sessionCost += costIn + costOut;
           window._lastStreamCost = (window._lastStreamCost || 0) + costIn + costOut;
+          addBudgetSpend(costIn + costOut); // F10: 累计日/月花费
         }
       } catch(e) { /* 跳过解析失败的行 */ }
     }
@@ -4137,13 +4277,39 @@ async function doWrite(userText, isFullMessage) {
     break; // 成功，退出重试循环
   } catch (err) {
     if (err.name === 'AbortError') {
-      if (c && c.content) {
+      // F5: 中断时把已生成的部分落盘（沿用成功路径的标题/段落规则），文案与实际一致
+      const partial = (fullReply || '').trim();
+      const base = (c && c.content) || '';
+      if (c && partial) {
+        let reply = partial;
+        let titleMatch = reply.match(/^第[一二三四五六七八九十百千\d]+章[：:]\s*(.+?)(?:\n|$)/);
+        if (titleMatch) {
+          const extractedTitle = titleMatch[1].trim();
+          if (extractedTitle.length <= 30) c.title = extractedTitle;
+          reply = reply.replace(/^第[一二三四五六七八九十百千\d]+章[：:].+?\n+/, '').trim();
+        } else {
+          reply = reply.replace(/^第[一二三四五六七八九十百千]+章[：:。]?\s*\n?/, '').trim();
+        }
+        reply = reply.replace(/\n{3,}/g, '\n\n');
+        if (!/\n\n/.test(reply)) reply = reply.replace(/([^\n])\n([^\n])/g, '$1\n\n$2');
+        c.content = (base ? base + '\n\n' : '') + reply;
+        c.summary = reply.replace(/\n/g, ' ').slice(0, 100) + (reply.length > 100 ? '…' : '');
+        c.model = currentModel;
+        saveData();
+        renderPaper();
+        updateWordCountBar();
         const el2 = document.getElementById('chapterContent');
         if (el2) {
           el2.innerHTML = esc(c.content) + '<div style="color:var(--accent3);padding:16px 20px;text-align:center;font-size:14px;border-top:1px solid var(--border);margin-top:12px;">⏹ 已停止 · 已写内容已保存</div>';
         }
+        showToast('⏹ 已停止，已保存 ' + reply.length.toLocaleString() + ' 字');
+      } else {
+        const el2 = document.getElementById('chapterContent');
+        if (el2) {
+          el2.innerHTML = esc(base) + '<div style="color:var(--accent3);padding:16px 20px;text-align:center;font-size:14px;border-top:1px solid var(--border);margin-top:12px;">⏹ 已停止，本次未生成内容</div>';
+        }
+        showToast('⏹ 已停止生成');
       }
-      showToast('⏹ 已停止生成');
       if (window._genAllNext) window._genAllNext();
       break;
     } else {
@@ -4382,6 +4548,8 @@ async function exportAllData() {
   try {
     const data = await dbLoad('novelWriterData');
     if (!data) { showToast('❌ 没有数据可导出'); return; }
+    // F17: 导入书现在存在独立键，导出时补回，保证备份完整
+    if (!data.importedBooks) { try { data.importedBooks = (await dbLoad('novelImportedBooks')) || []; } catch(e) { data.importedBooks = []; } }
     const novelCount = (data.novelsMeta || []).length;
     // 收集所有小说的body数据
     const bodies = {};
@@ -4454,15 +4622,10 @@ async function doImport() {
   });
 }
 async function doImportData(data) {
+  // F3: 先写新数据并回读校验，成功后才删旧数据；任一步失败则保留旧数据并报错，不 reload
   try {
-    showToast('⏳ 正在清理旧数据…');
     const oldData = await dbLoad('novelWriterData');
-    if (oldData?.novelsMeta) {
-      for (const m of oldData.novelsMeta) {
-        await dbDelete('novel_body_' + m.id);
-      }
-    }
-    // 处理旧格式（novels数组含chapters）→ 转换为新格式
+    const writtenIds = []; // 本次写入的 novel_body_* id
     let novelsMeta;
     if (data.novels && !data.novelsMeta) {
       // 旧格式：每个novel里直接有chapters
@@ -4479,6 +4642,7 @@ async function doImportData(data) {
           _readingProgress: n._readingProgress || n.readingProgress || 0
         };
         await dbSave('novel_body_' + nid, body);
+        writtenIds.push(nid);
         novelsMeta.push({
           id: nid, title: n.title || '未命名', style: n.style || '古风',
           coverColor: n.coverColor || COVER_GRADIENTS[0],
@@ -4500,7 +4664,20 @@ async function doImportData(data) {
       if (data._bodies) {
         for (const [id, body] of Object.entries(data._bodies)) {
           await dbSave('novel_body_' + id, body);
+          writtenIds.push(id);
         }
+      }
+    }
+    // 回读校验：确认正文都已落盘
+    for (const id of writtenIds) {
+      const chk = await dbLoad('novel_body_' + id);
+      if (!chk) throw new Error('正文字段写入校验失败：' + id);
+    }
+    // 校验通过后才清理旧数据中不再存在的正文
+    if (oldData?.novelsMeta) {
+      const newIdSet = new Set(writtenIds);
+      for (const m of oldData.novelsMeta) {
+        if (!newIdSet.has(m.id)) { try { await dbDelete('novel_body_' + m.id); } catch(e) {} }
       }
     }
     showToast('⏳ 正在保存…');
@@ -4510,14 +4687,15 @@ async function doImportData(data) {
       chapterWordTarget: data.chapterWordTarget, temperature: data.temperature,
       aiColor: data.aiColor, contentColor: data.contentColor, fontSize: data.fontSize,
       totalTokensUsed: data.totalTokensUsed || 0, totalTokensCost: data.totalTokensCost || 0,
-      importedBooks: data.importedBooks || [],
       readerSkin: data.readerSkin, readerFontSize: data.readerFontSize,
       readerLineHeight: data.readerLineHeight, readerBrightness: data.readerBrightness
     });
+    // F17: 导入书拆到独立 IndexedDB 键，元数据不再连带全量导入书
+    try { await dbSave('novelImportedBooks', data.importedBooks || []); } catch(e) {}
     showToast('✅ 导入完成，正在刷新…');
     setTimeout(() => location.reload(), 300);
   } catch(err) {
-    showToast('❌ 导入失败（' + err.message + '）');
+    showToast('❌ 导入失败（' + (err.message || err) + '），已保留原数据');
   }
 }
 function importAllData(event) {
@@ -4676,14 +4854,14 @@ document.querySelectorAll('.modal-overlay').forEach(el => {
   el.addEventListener('click', e => {
     if (e.target !== el) return;
     el.classList.add('closing');
-    setTimeout(() => { el.classList.remove('active', 'closing'); }, 180);
+    setTimeout(() => { el.classList.remove('active', 'closing'); updateBodyScrollLock(); }, 180);
   });
 });
 document.querySelectorAll('.confirm-overlay').forEach(el => {
   el.addEventListener('click', e => {
     if (e.target !== el) return;
     el.classList.add('closing');
-    setTimeout(() => { el.classList.remove('active', 'closing'); }, 180);
+    setTimeout(() => { el.classList.remove('active', 'closing'); updateBodyScrollLock(); }, 180);
   });
 });
 // Auto-save
@@ -5338,7 +5516,8 @@ async function parseEpub(buffer, filename) {
       readingProgress: 0
     });
 
-    await dbSave('novelWriterData', { novelsMeta: novels, currentModel, customPrompt, chapterWordTarget, temperature, aiColor, contentColor, fontSize, totalTokensUsed, totalTokensCost, importedBooks, readerSkin, readerFontSize, readerLineHeight, readerBrightness, customProxy: _customProxy });
+    await dbSave('novelImportedBooks', importedBooks);
+    await dbSave('novelWriterData', { novelsMeta: novels, currentModel, customPrompt, chapterWordTarget, temperature, aiColor, contentColor, fontSize, totalTokensUsed, totalTokensCost, readerSkin, readerFontSize, readerLineHeight, readerBrightness, customProxy: _customProxy });
     currentShelfTab = 'bookshelf';
     renderHome();
     showToast('✅ 导入成功：' + title + ' · ' + chapters.length + '章 · ' + totalWords.toLocaleString() + '字');
@@ -5576,7 +5755,16 @@ async function openNovelReader(idx) {
         chapters: body.chapters || [], bible: body.bible || {}, characters: body.characters || [] };
     }
   }
-  readerBook = { type: 'novel', bookIndex: idx, chapterIndex: 0, novelId: meta?.id };
+  // F12: 恢复每本书最后阅读章节（兼容旧数据：无 lastChapterIndex 时按 readingProgress 估算）
+  const _cache = meta && _novelCache[meta.id];
+  const _chCount = (_cache && _cache.chapters) ? _cache.chapters.length : 0;
+  let _startIdx = (meta && typeof meta.lastChapterIndex === 'number') ? meta.lastChapterIndex : -1;
+  if (_startIdx < 0 && _chCount > 0 && meta && meta.readingProgress > 0) {
+    _startIdx = Math.round((meta.readingProgress / 100) * Math.max(0, _chCount - 1));
+  }
+  if (_startIdx < 0) _startIdx = 0;
+  if (_chCount > 0) _startIdx = Math.min(_startIdx, _chCount - 1);
+  readerBook = { type: 'novel', bookIndex: idx, chapterIndex: _startIdx, novelId: meta?.id };
   openReader();
 }
 
@@ -5586,6 +5774,7 @@ function openReader() {
   const overlay = document.getElementById('readerOverlay');
   overlay.style.display = 'flex';
   overlay.classList.add('active');
+  updateBodyScrollLock();
   document.getElementById('bottomNav').style.display = 'none';
   applyReaderSkinUI();
   applyReaderFontSizeUI();
@@ -5599,6 +5788,7 @@ function closeReader() {
   document.getElementById('bottomNav').style.display = '';
   document.getElementById('readerMenu').classList.remove('active');
   readerBook = null;
+  updateBodyScrollLock();
 }
 
 function getReaderBook() {
@@ -5718,6 +5908,15 @@ function calculatePages() {
   updatePageIndicator();
 }
 
+// F11: 重算分页并尽量保持当前页码比例（字号/行高/字体变更后）
+function refreshReaderPagination() {
+  if (!_pageMode || !readerBook) return;
+  const pct = _totalPages > 1 ? _currentPage / (_totalPages - 1) : 0;
+  calculatePages();
+  _currentPage = Math.min(_totalPages - 1, Math.round(pct * Math.max(0, _totalPages - 1)));
+  showPage(_currentPage);
+}
+
 function showPage(idx) {
   if (idx < 0 || idx >= _totalPages) return;
   _currentPage = idx;
@@ -5763,14 +5962,29 @@ function updatePageIndicator() {
 }
 
 function togglePageMode() {
+  const contentEl = document.getElementById('readerContent');
+  // V6: 切换前记录当前阅读位置比例，切后恢复
+  let savedPct = 0;
+  if (_pageMode) {
+    savedPct = _totalPages > 1 ? _currentPage / (_totalPages - 1) : 0;
+  } else if (contentEl) {
+    savedPct = contentEl.scrollTop / Math.max(1, contentEl.scrollHeight - contentEl.clientHeight);
+  }
   _pageMode = !_pageMode;
   const btn = document.getElementById('pageModeBtn');
   if (btn) {
     btn.style.fontWeight = _pageMode ? 'bold' : 'normal';
     btn.style.color = _pageMode ? 'var(--accent2)' : 'inherit';
   }
-  _currentPage = 0;
+  if (_pageMode) stopAutoScroll(); // V6: 翻页模式禁用自动滚屏
   loadReaderChapter();
+  // V6: 恢复位置
+  if (_pageMode) {
+    _currentPage = Math.min(_totalPages - 1, Math.round(savedPct * Math.max(0, _totalPages - 1)));
+    showPage(_currentPage);
+  } else if (contentEl) {
+    contentEl.scrollTop = savedPct * Math.max(1, contentEl.scrollHeight - contentEl.clientHeight);
+  }
   document.getElementById('readerMenu').classList.remove('active');
   showToast(_pageMode ? '已切换到翻页模式' : '已切换到滚动模式');
 }
@@ -5833,6 +6047,7 @@ function toggleFontFamily() {
   _fontFamilyIdx = (_fontFamilyIdx + 1) % FONT_FAMILIES.length;
   const family = FONT_FAMILIES[_fontFamilyIdx];
   applyReaderFontFamily(family);
+  refreshReaderPagination(); // F11: 字体改变影响排版
   document.getElementById('readerMenu').classList.remove('active');
   showToast('字体: ' + FONT_NAMES[family]);
 }
@@ -5888,7 +6103,14 @@ function readerGoToChapter(idx) {
   const book = getReaderBook();
   if (book) {
     book.currentPosition = { chapterIndex: idx, scrollPercent: 0 };
-    book.readingProgress = Math.round((idx / Math.max(1, book.chapters.length - 1)) * 100);
+    const pct = Math.round((idx / Math.max(1, book.chapters.length - 1)) * 100);
+    book.readingProgress = pct;
+    // F12: 自有小说进度/最后章节回写到正确的书（meta），而非仅作用于当前打开的书
+    if (readerBook.type === 'novel') {
+      const bi = readerBook.bookIndex;
+      if (novels[bi]) { novels[bi].readingProgress = pct; novels[bi].lastChapterIndex = idx; }
+      if (_currentNovel && _currentNovel.id === readerBook.novelId) _currentNovel.readingProgress = pct;
+    }
     saveData();
   }
   _currentPage = 0;
@@ -5929,6 +6151,7 @@ function toggleReaderMenu() {
 function setReaderSkin(skin) {
   readerSkin = skin;
   applyReaderSkinUI();
+  refreshReaderPagination(); // F11
   document.getElementById('readerMenu').classList.remove('active');
   saveData();
 }
@@ -5944,6 +6167,7 @@ function applyReaderSkinUI() {
 function setFontSize(delta) {
   readerFontSize = Math.min(24, Math.max(13, readerFontSize + delta));
   applyReaderFontSizeUI();
+  refreshReaderPagination(); // F11: 翻页模式下重算分页
   saveData();
 }
 
@@ -5955,6 +6179,7 @@ function applyReaderLineHeight(val) {
   readerLineHeight = parseFloat(val);
   document.getElementById('readerContent').style.lineHeight = readerLineHeight;
   document.getElementById('readerLineHeightVal').textContent = val;
+  refreshReaderPagination(); // F11: 翻页模式下重算分页
   saveData();
 }
 
@@ -5979,6 +6204,11 @@ document.getElementById('readerContent').addEventListener('scroll', function() {
     chapterIndex: readerBook.chapterIndex,
     scrollPercent: Math.round(pct * 100)
   };
+  // F12: 滚动时同步最后阅读章节到小说元数据
+  if (readerBook.type === 'novel' && novels[readerBook.bookIndex]) {
+    novels[readerBook.bookIndex].lastChapterIndex = readerBook.chapterIndex;
+    novels[readerBook.bookIndex].readingProgress = Math.round((readerBook.chapterIndex / Math.max(1, book.chapters.length - 1)) * 100);
+  }
   // 节流保存
   clearTimeout(window._readerSaveTimer);
   window._readerSaveTimer = setTimeout(() => saveData(), 2000);
@@ -6309,7 +6539,7 @@ function generatePoster() {
     posterModal.id = 'posterModal';
     posterModal.innerHTML = '<div class="modal" style="max-width:500px;"><h2>🎨 作品海报</h2><div id="posterImg"></div><p style="font-size:12px;color:var(--text2);margin:8px 0;">长按图片保存到相册</p><div class="btn-group"><button class="btn btn-secondary" onclick="closeModal(\'posterModal\')">关闭</button><button class="btn btn-primary" onclick="downloadPoster()">💾 下载</button></div></div>';
     document.body.appendChild(posterModal);
-    posterModal.addEventListener('click', e => { if (e.target === posterModal) posterModal.classList.remove('active'); });
+    posterModal.addEventListener('click', e => { if (e.target === posterModal) { posterModal.classList.remove('active'); updateBodyScrollLock(); } });
   }
   document.getElementById('posterImg').innerHTML = '';
   document.getElementById('posterImg').appendChild(img);
@@ -6351,7 +6581,8 @@ function showStats() {
   const maxWords = Math.max(1, ...last7.map(d => d.words));
 
   const sessionMinutes = Math.round((Date.now() - sessionStartTime) / 60000);
-  const avgDaily = Math.round(totalWords / Math.max(1, 7));
+  // V4: 日均字数改为近 7 天真实写作量（last7 已按 _novelCache 逐日统计）
+  const avgDaily = Math.round(last7.reduce((s, d) => s + d.words, 0) / 7);
 
   let html = '<div class="stat-grid">' +
     '<div class="stat-card"><div class="stat-val">' + novels.length + '</div><div class="stat-label">我的作品</div></div>' +
@@ -6792,6 +7023,8 @@ function toggleAutoScroll() {
 }
 
 function startAutoScroll() {
+  // V6: 翻页模式下无法滚屏，直接阻止
+  if (_pageMode) { showToast('翻页模式不支持自动滚屏'); return; }
   const indicator = document.getElementById('autoScrollIndicator');
   const speedRow = document.getElementById('autoScrollSpeedRow');
   indicator.classList.add('show');
@@ -6966,6 +7199,7 @@ document.addEventListener('keydown', function(e) {
     document.querySelectorAll('.modal-overlay.active').forEach(m => m.classList.remove('active'));
     document.querySelectorAll('.confirm-overlay.active').forEach(m => m.classList.remove('active'));
     if (document.getElementById('readerOverlay').classList.contains('active')) closeReader();
+    updateBodyScrollLock();
   }
 });
 
@@ -6996,6 +7230,9 @@ function getStreakDays() {
 // ===== 音量键翻页 =====
 document.addEventListener('keydown', function(e) {
   if (!readerBook) return;
+  // V5: 输入类元素聚焦时不劫持按键（书内搜索等）
+  const _tag = (e.target && e.target.tagName) || '';
+  if (_tag === 'INPUT' || _tag === 'TEXTAREA' || _tag === 'SELECT' || (e.target && e.target.isContentEditable)) return;
   // Volume up = previous chapter, Volume down = next chapter
   if (e.key === 'AudioVolumeUp' || e.code === 'AudioVolumeUp') {
     e.preventDefault();
@@ -7175,10 +7412,18 @@ function showGoalDialog() {
 }
 
 function getTodayWordCount() {
-  const ds = new Date().toDateString();
-  return novels.reduce((s, n) => s + n.chapters.reduce((s2, c) => {
-    return s2 + ((c.createdAt && new Date(c.createdAt).toDateString() === ds) ? countChinese(c.content) : 0);
-  }, 0), 0);
+  // F9: novels 是轻量元数据，没有 chapters 字段；改用已缓存正文统计，并全程加守卫，统计失败不得中断渲染
+  try {
+    const ds = new Date().toDateString();
+    let total = 0;
+    for (const id in _novelCache) {
+      const chapters = (_novelCache[id] && _novelCache[id].chapters) || [];
+      for (const c of chapters) {
+        if (c && c.createdAt && new Date(c.createdAt).toDateString() === ds) total += countChinese(c.content || '');
+      }
+    }
+    return total;
+  } catch(e) { return 0; }
 }
 
 function updateGoalRing() {
@@ -7256,11 +7501,16 @@ function splitChapter(idx) {
   const firstHalf = paras.slice(0, mid).join('\n\n');
   const secondHalf = paras.slice(mid).join('\n\n');
   ch.content = firstHalf;
+  ch.summary = firstHalf.replace(/\n/g, ' ').slice(0, 100) + (firstHalf.length > 100 ? '…' : '');
+  // V3: 保留 id/summary/history 等字段，避免拆分丢元数据
   const newCh = {
-    title: ch.title + '(下)',
+    id: Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
+    title: (ch.title || '') + '(下)',
     content: secondHalf,
+    summary: secondHalf.replace(/\n/g, ' ').slice(0, 100) + (secondHalf.length > 100 ? '…' : ''),
     model: ch.model,
     createdAt: new Date().toISOString(),
+    history: [],
     tokens: Math.round((ch.tokens || 0) / 2),
     cost: ch.cost ? ch.cost / 2 : 0
   };
@@ -7280,6 +7530,10 @@ function mergeChapter(idx) {
   current.content = (current.content || '') + '\n\n' + (next.content || '');
   current.tokens = (current.tokens || 0) + (next.tokens || 0);
   current.cost = (current.cost || 0) + (next.cost || 0);
+  // V3: 迁移 summary/history/createdAt，避免合并丢元数据
+  current.summary = current.content.replace(/\n/g, ' ').slice(0, 100) + (current.content.length > 100 ? '…' : '');
+  current.history = [...(current.history || []), ...(next.history || [])];
+  if (!current.createdAt && next.createdAt) current.createdAt = next.createdAt;
   // Merge title
   if (current.title && next.title) {
     current.title = current.title.replace(/(上|\(上\))$/, '').trim() || current.title;
@@ -7373,9 +7627,9 @@ function restoreVersion(idx, verIdx) {
   const ch = n.chapters[idx];
   const versions = ch._versions || [];
   if (verIdx >= versions.length) return;
-  // Save current version before restoring
+  // F8: 先深拷贝目标版本，再存当前快照（saveChapterVersion 内部 unshift 会使索引偏移）
+  const v = { content: versions[verIdx].content, title: versions[verIdx].title, savedAt: versions[verIdx].savedAt };
   saveChapterVersion(idx);
-  const v = versions[verIdx];
   ch.content = v.content;
   ch.title = v.title;
   saveData();
@@ -7797,7 +8051,8 @@ async function searchOnlineNovels() {
   resultsEl.innerHTML = '<div class="os-loading"><div class="spinner"></div><p style="color:var(--text2);">正在搜索书源...</p></div>';
 
   const allResults = [];
-  for (const src of BOOK_SOURCES) {
+  // V1: 过滤标记 skip 的书源，不再对其发请求
+  for (const src of BOOK_SOURCES.filter(s => !s.skip)) {
     try {
       hintEl.innerHTML = '<span class="os-status-dot searching"></span> 正在搜索：' + src.name + '...';
       let html;
@@ -7837,7 +8092,7 @@ async function searchOnlineNovels() {
       });
       hintEl.innerHTML = '<span class="os-status-dot success"></span> ' + src.name + '：找到 ' + count + ' 条结果';
     } catch(e) {
-      hintEl.innerHTML = '<span class="os-status-dot error"></span> ' + src.name + '：' + (e.message || '连接失败');
+      hintEl.innerHTML = '<span class="os-status-dot error"></span> ' + esc(src.name) + '：' + esc(e.message || '连接失败');
     }
   }
 
@@ -8196,7 +8451,7 @@ async function addOnlineBookToShelf() {
 // Fallback: 在新标签页打开书源搜索
 function openSourceSearch(idx) {
   const query = document.getElementById('onlineSearchInput').value.trim();
-  const src = BOOK_SOURCES[idx];
+  const src = BOOK_SOURCES.filter(s => !s.skip)[idx] || BOOK_SOURCES[0];
   if (src.searchMethod === 'POST') {
     window.open(src.baseUrl, '_blank');
     showToast('已在 ' + src.name + ' 打开（POST搜索需手动输入关键词）');
